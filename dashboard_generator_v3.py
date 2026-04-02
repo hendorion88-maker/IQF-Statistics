@@ -428,7 +428,7 @@ body{{background:var(--bg);color:var(--text);font-family:var(--mono);font-size:1
     <p id="dash-subtitle">Loading…</p>
   </div>
   <div class="header-right" id="dash-header-right">
-    Setpoint: <strong style="color:var(--amber)">{sp} g</strong> &nbsp;|&nbsp; σ = {SIGMA}
+    Setpoint: <strong style="color:var(--amber)">{sp} Kg</strong> &nbsp;|&nbsp; σ = {SIGMA}
   </div>
 </div>
 
@@ -632,16 +632,16 @@ function renderDashboard(m){{
   document.getElementById('k-total-pc').textContent     = fn(m.total_pc);
   document.getElementById('k-total-pc-sub').textContent = `Across ${{m.n_shifts}} shifts`;
   document.getElementById('k-total-wt').textContent     = fn(m.total_wt);
-  document.getElementById('k-avg-w').textContent        = m.avg_filler.toFixed(4)+' g';
+  document.getElementById('k-avg-w').textContent        = m.avg_filler.toFixed(4)+' Kg';
   const awCard=document.getElementById('k-avg-w-card');
   awCard.className='kpi '+(Math.abs(m.avg_filler-SETPOINT)>0.02?'warn':'good');
   document.getElementById('k-avg-rate').textContent     = fn(Math.round(m.avg_rate));
   const ov=m.total_over;
-  document.getElementById('k-over').textContent         = (ov>=0?'+':'')+ov.toFixed(2)+' g';
+  document.getElementById('k-over').textContent         = (ov>=0?'+':'')+ov.toFixed(2)+' Kg';
   document.getElementById('k-over').className           = 'kpi-value'+(ov<0?' red':'');
   document.getElementById('k-over-card').className      = 'kpi'+(ov<0?' bad':'');
-  document.getElementById('k-over-sub').textContent     = `Avg ${{(ov/m.n_shifts).toFixed(2)}} g / shift`;
-  document.getElementById('k-avg-over').textContent     = (m.avg_over_per_shift>=0?'+':'')+m.avg_over_per_shift.toFixed(2)+' g';
+  document.getElementById('k-over-sub').textContent     = `Avg ${{(ov/m.n_shifts).toFixed(2)}} Kg / shift`;
+  document.getElementById('k-avg-over').textContent     = (m.avg_over_per_shift>=0?'+':'')+m.avg_over_per_shift.toFixed(2)+' Kg';
   document.getElementById('k-avg-over-sub').textContent = `Total ÷ ${{m.n_shifts}} shifts`;
   document.getElementById('k-acc').textContent          = m.device_accuracy.toFixed(3)+'%';
   document.getElementById('k-acc').className            = 'kpi-value'+(m.device_accuracy<99.9?' red':' green');
