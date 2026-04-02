@@ -444,9 +444,9 @@ body{{background:var(--bg);color:var(--text);font-family:var(--mono);font-size:1
   <div class="section-label">Overall summary</div>
   <div class="kpi-grid" id="kpi-top">
     <div class="kpi loading"><div class="kpi-label">Total pieces counted</div><div class="kpi-value" id="k-total-pc">—</div><div class="kpi-sub" id="k-total-pc-sub">—</div></div>
-    <div class="kpi loading"><div class="kpi-label">Total weight (g)</div><div class="kpi-value" id="k-total-wt">—</div><div class="kpi-sub">Sum across all tracks</div></div>
-    <div class="kpi loading" id="k-avg-w-card"><div class="kpi-label">Avg filler box weight</div><div class="kpi-value" id="k-avg-w">—</div><div class="kpi-sub">Setpoint: {sp} g</div></div>
-    <div class="kpi loading"><div class="kpi-label">Avg production rate</div><div class="kpi-value" id="k-avg-rate">—</div><div class="kpi-sub">Pieces / shift</div></div>
+    <div class="kpi loading"><div class="kpi-label">Total weight (Kg)</div><div class="kpi-value" id="k-total-wt">—</div><div class="kpi-sub">Sum across all tracks</div></div>
+    <div class="kpi loading" id="k-avg-w-card"><div class="kpi-label">Avg filler box weight</div><div class="kpi-value" id="k-avg-w">—</div><div class="kpi-sub">Setpoint: {sp} Kg</div></div>
+    <div class="kpi loading"><div class="kpi-label">Avg production Pieces rate</div><div class="kpi-value" id="k-avg-rate">—</div><div class="kpi-sub">Pieces / shift</div></div>
   </div>
 
   <div class="kpi-grid" style="margin-top:12px">
@@ -466,14 +466,14 @@ body{{background:var(--bg);color:var(--text);font-family:var(--mono);font-size:1
     </div>
     <div class="chart-card">
       <div class="chart-title">Avg filler box weight per shift</div>
-      <div class="chart-sub">Dashed = setpoint ({sp} g)</div>
+      <div class="chart-sub">Dashed = setpoint ({sp} Kg)</div>
       <div class="legend"><span><span class="leg-dot" style="background:#F59E0B"></span>Avg weight</span><span><span class="leg-dot" style="background:#6366F1;opacity:.5"></span>Setpoint</span></div>
       <div style="position:relative;height:200px"><canvas id="c2"></canvas></div>
     </div>
   </div>
   <div class="chart-grid-2" style="margin-top:14px">
     <div class="chart-card">
-      <div class="chart-title">Overfilling per shift (g)</div>
+      <div class="chart-title">Overfilling per shift (Kg)</div>
       <div class="chart-sub">Red = underfilling</div>
       <div style="position:relative;height:200px"><canvas id="c3"></canvas></div>
     </div>
@@ -486,7 +486,7 @@ body{{background:var(--bg);color:var(--text);font-family:var(--mono);font-size:1
   </div>
   <div class="chart-card-full">
     <div class="chart-title">Avg box weight per track — all shifts</div>
-    <div class="chart-sub">Setpoint = {sp} g (dashed)</div>
+    <div class="chart-sub">Setpoint = {sp} Kg (dashed)</div>
     <div class="legend"><span><span class="leg-dot" style="background:#6366F1"></span>Track 1</span><span><span class="leg-dot" style="background:#34D399"></span>Track 2</span><span><span class="leg-dot" style="background:#F59E0B"></span>Track 3</span><span><span class="leg-dot" style="background:#6b7280;opacity:.6"></span>Setpoint</span></div>
     <div style="position:relative;height:210px"><canvas id="c5"></canvas></div>
   </div>
