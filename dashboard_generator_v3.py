@@ -823,7 +823,7 @@ function renderShiftTable(s,i){{
   const sh=s[i];
   document.getElementById('shift-table').innerHTML=`
   <table class="detail-table">
-    <thead><tr><th>Track</th><th>Boxes</th><th>Weight (g)</th><th>Avg weight</th><th>Giveaway (g/box)</th><th>Overfill (g)</th><th>Status</th></tr></thead>
+    <thead><tr><th>Track</th><th>Boxes</th><th>Weight (Kg)</th><th>Avg weight</th><th>Giveaway (g/box)</th><th>Overfill (Kg)</th><th>Status</th></tr></thead>
     <tbody>
       <tr><td><strong>Track 1</strong></td><td>${{fn(sh.b1)}}</td><td>${{fn(sh.w1)}}</td>
         <td>${{pill(sh.avg_w1)}}</td>
