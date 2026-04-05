@@ -2,3 +2,7 @@ pandas
 openpyxl
 flask
 requests
+dash-bootstrap-components
+plotly
+gunicorn
+dash
