@@ -428,7 +428,7 @@ body{{background:var(--bg);color:var(--text);font-family:var(--mono);font-size:1
     <p id="dash-subtitle">Loading…</p>
   </div>
   <div class="header-right" id="dash-header-right">
-    Setpoint: <strong style="color:var(--amber)">{sp} Kg</strong> &nbsp;|&nbsp; σ = {SIGMA}
+    Setpoint: <strong style="color:var(--amber)">{sp} g</strong> &nbsp;|&nbsp; σ = {SIGMA}
   </div>
 </div>
 
@@ -444,9 +444,9 @@ body{{background:var(--bg);color:var(--text);font-family:var(--mono);font-size:1
   <div class="section-label">Overall summary</div>
   <div class="kpi-grid" id="kpi-top">
     <div class="kpi loading"><div class="kpi-label">Total pieces counted</div><div class="kpi-value" id="k-total-pc">—</div><div class="kpi-sub" id="k-total-pc-sub">—</div></div>
-    <div class="kpi loading"><div class="kpi-label">Total weight (Kg)</div><div class="kpi-value" id="k-total-wt">—</div><div class="kpi-sub">Sum across all tracks</div></div>
-    <div class="kpi loading" id="k-avg-w-card"><div class="kpi-label">Avg filler box weight</div><div class="kpi-value" id="k-avg-w">—</div><div class="kpi-sub">Setpoint: {sp} Kg</div></div>
-    <div class="kpi loading"><div class="kpi-label">Avg production Pieces rate</div><div class="kpi-value" id="k-avg-rate">—</div><div class="kpi-sub">Pieces / shift</div></div>
+    <div class="kpi loading"><div class="kpi-label">Total weight (g)</div><div class="kpi-value" id="k-total-wt">—</div><div class="kpi-sub">Sum across all tracks</div></div>
+    <div class="kpi loading" id="k-avg-w-card"><div class="kpi-label">Avg filler box weight</div><div class="kpi-value" id="k-avg-w">—</div><div class="kpi-sub">Setpoint: {sp} g</div></div>
+    <div class="kpi loading"><div class="kpi-label">Avg production rate</div><div class="kpi-value" id="k-avg-rate">—</div><div class="kpi-sub">Pieces / shift</div></div>
   </div>
 
   <div class="kpi-grid" style="margin-top:12px">
@@ -466,14 +466,14 @@ body{{background:var(--bg);color:var(--text);font-family:var(--mono);font-size:1
     </div>
     <div class="chart-card">
       <div class="chart-title">Avg filler box weight per shift</div>
-      <div class="chart-sub">Dashed = setpoint ({sp} Kg)</div>
+      <div class="chart-sub">Dashed = setpoint ({sp} g)</div>
       <div class="legend"><span><span class="leg-dot" style="background:#F59E0B"></span>Avg weight</span><span><span class="leg-dot" style="background:#6366F1;opacity:.5"></span>Setpoint</span></div>
       <div style="position:relative;height:200px"><canvas id="c2"></canvas></div>
     </div>
   </div>
   <div class="chart-grid-2" style="margin-top:14px">
     <div class="chart-card">
-      <div class="chart-title">Overfilling per shift (Kg)</div>
+      <div class="chart-title">Overfilling per shift (g)</div>
       <div class="chart-sub">Red = underfilling</div>
       <div style="position:relative;height:200px"><canvas id="c3"></canvas></div>
     </div>
@@ -486,7 +486,7 @@ body{{background:var(--bg);color:var(--text);font-family:var(--mono);font-size:1
   </div>
   <div class="chart-card-full">
     <div class="chart-title">Avg box weight per track — all shifts</div>
-    <div class="chart-sub">Setpoint = {sp} Kg (dashed)</div>
+    <div class="chart-sub">Setpoint = {sp} g (dashed)</div>
     <div class="legend"><span><span class="leg-dot" style="background:#6366F1"></span>Track 1</span><span><span class="leg-dot" style="background:#34D399"></span>Track 2</span><span><span class="leg-dot" style="background:#F59E0B"></span>Track 3</span><span><span class="leg-dot" style="background:#6b7280;opacity:.6"></span>Setpoint</span></div>
     <div style="position:relative;height:210px"><canvas id="c5"></canvas></div>
   </div>
@@ -632,16 +632,16 @@ function renderDashboard(m){{
   document.getElementById('k-total-pc').textContent     = fn(m.total_pc);
   document.getElementById('k-total-pc-sub').textContent = `Across ${{m.n_shifts}} shifts`;
   document.getElementById('k-total-wt').textContent     = fn(m.total_wt);
-  document.getElementById('k-avg-w').textContent        = m.avg_filler.toFixed(4)+' Kg';
+  document.getElementById('k-avg-w').textContent        = m.avg_filler.toFixed(4)+' g';
   const awCard=document.getElementById('k-avg-w-card');
   awCard.className='kpi '+(Math.abs(m.avg_filler-SETPOINT)>0.02?'warn':'good');
   document.getElementById('k-avg-rate').textContent     = fn(Math.round(m.avg_rate));
   const ov=m.total_over;
-  document.getElementById('k-over').textContent         = (ov>=0?'+':'')+ov.toFixed(2)+' Kg';
+  document.getElementById('k-over').textContent         = (ov>=0?'+':'')+ov.toFixed(2)+' g';
   document.getElementById('k-over').className           = 'kpi-value'+(ov<0?' red':'');
   document.getElementById('k-over-card').className      = 'kpi'+(ov<0?' bad':'');
-  document.getElementById('k-over-sub').textContent     = `Avg ${{(ov/m.n_shifts).toFixed(2)}} Kg / shift`;
-  document.getElementById('k-avg-over').textContent     = (m.avg_over_per_shift>=0?'+':'')+m.avg_over_per_shift.toFixed(2)+' Kg';
+  document.getElementById('k-over-sub').textContent     = `Avg ${{(ov/m.n_shifts).toFixed(2)}} g / shift`;
+  document.getElementById('k-avg-over').textContent     = (m.avg_over_per_shift>=0?'+':'')+m.avg_over_per_shift.toFixed(2)+' g';
   document.getElementById('k-avg-over-sub').textContent = `Total ÷ ${{m.n_shifts}} shifts`;
   document.getElementById('k-acc').textContent          = m.device_accuracy.toFixed(3)+'%';
   document.getElementById('k-acc').className            = 'kpi-value'+(m.device_accuracy<99.9?' red':' green');
@@ -823,7 +823,7 @@ function renderShiftTable(s,i){{
   const sh=s[i];
   document.getElementById('shift-table').innerHTML=`
   <table class="detail-table">
-    <thead><tr><th>Track</th><th>Boxes</th><th>Weight (Kg)</th><th>Avg weight</th><th>Giveaway (g/box)</th><th>Overfill (Kg)</th><th>Status</th></tr></thead>
+    <thead><tr><th>Track</th><th>Boxes</th><th>Weight (g)</th><th>Avg weight</th><th>Giveaway (g/box)</th><th>Overfill (g)</th><th>Status</th></tr></thead>
     <tbody>
       <tr><td><strong>Track 1</strong></td><td>${{fn(sh.b1)}}</td><td>${{fn(sh.w1)}}</td>
         <td>${{pill(sh.avg_w1)}}</td>
