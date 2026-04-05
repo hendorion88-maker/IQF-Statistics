@@ -1328,16 +1328,20 @@ app.layout = dbc.Container(fluid=True, children=[
             # Shared time picker (used by both SCADA sub-tabs)
             _time_picker("shared", default_start=scada_min, default_end=scada_max),
 
+            # ── Single load button for both sub-tabs ─────────────────────
+            dbc.Row([
+                dbc.Col(dbc.Button("📊 Load SCADA Data", id="btn-scada-load",
+                                   color="primary", className="mt-1 mb-2"), width="auto"),
+                dbc.Col(html.Div(id="data-status",
+                                className="mt-3 text-muted small"), width="auto"),
+                dbc.Col(html.Div(id="alarm-status",
+                                className="mt-3 text-muted small"), width="auto"),
+            ], className="mt-1 mb-1"),
+
             dbc.Tabs(id="scada-subtabs", active_tab="scada-data", children=[
 
                 # ── Data Logs ─────────────────────────────────────────────
                 dbc.Tab(label="📈 Data Logs", tab_id="scada-data", children=[
-                    dbc.Row([
-                        dbc.Col(dbc.Button("Plot All Parameters", id="btn-data",
-                                           color="primary", className="mt-2 mb-2"), width="auto"),
-                        dbc.Col(html.Div(id="data-status",
-                                        className="mt-3 text-muted small"), width="auto"),
-                    ], className="mt-2"),
                     # Production KPI cards (filled by callback)
                     html.Div(id="scada-prod-kpis", className="filler-kpi-grid mb-3",
                              style={"display": "grid", "gridTemplateColumns": "repeat(4, 1fr)", "gap": "12px", "marginBottom": "12px"}),
@@ -1354,13 +1358,7 @@ app.layout = dbc.Container(fluid=True, children=[
 
                 # ── Alarm Analysis ────────────────────────────────────────
                 dbc.Tab(label="🚨 Alarm Analysis", tab_id="scada-alarm", children=[
-                    dbc.Row([
-                        dbc.Col(dbc.Button("Analyse Alarms", id="btn-alarm",
-                                           color="danger", className="mt-2 mb-2"), width="auto"),
-                        dbc.Col(html.Div(id="alarm-status",
-                                        className="mt-3 text-muted small"), width="auto"),
-                    ], className="mt-2"),
-                    dbc.Row(id="alarm-kpis", className="mb-3"),
+                    dbc.Row(id="alarm-kpis", className="mb-3 mt-2"),
                     dbc.Spinner(dcc.Graph(id="chart-alarm-timeline",
                                          config={"scrollZoom": True},
                                          style={"minHeight": "300px"}), color="danger"),
@@ -1685,7 +1683,7 @@ def _switch_shift_tab(n_clicks_list):
     Output("data-status",            "children"),
     Output("scada-prod-kpis",        "children"),
     Output("scada-prod-cycles-table","children"),
-    Input("btn-data",            "n_clicks"),
+    Input("btn-scada-load",      "n_clicks"),
     State("shared-start-date",   "value"),
     State("shared-end-date",     "value"),
     State("shared-start-hour",   "value"),
@@ -1760,7 +1758,7 @@ def update_data_chart(n_clicks, start_date, end_date, sh, sm, eh, em):
     Output("alarm-kpis",             "children"),
     Output("alarm-table-container",  "children"),
     Output("alarm-status",           "children"),
-    Input("btn-alarm",               "n_clicks"),
+    Input("btn-scada-load",          "n_clicks"),
     State("shared-start-date",       "value"),
     State("shared-end-date",         "value"),
     State("shared-start-hour",       "value"),
