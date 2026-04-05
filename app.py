@@ -628,9 +628,16 @@ def build_superimposed_chart(df, start_dt, end_dt, production_periods=None):
             tail = inside.iloc[-1][["TimeString", "VarValue"]].copy()
             tail["TimeString"] = end_dt
             rows.append(pd.DataFrame([tail]))
-        if not rows or inside.empty:
-            continue
+        elif not before.empty:
+            # No readings inside the window — hold the last known value as a flat line
+            tail = before.iloc[-1][["TimeString", "VarValue"]].copy()
+            tail["TimeString"] = end_dt
+            rows.append(pd.DataFrame([tail]))
+        else:
+            continue  # No data at all for this variable — skip
         segment = (pd.concat(rows).drop_duplicates("TimeString").sort_values("TimeString"))
+        if len(segment) < 2:
+            continue
         yaxis_key = "y" if i == 0 else f"y{i + 1}"
         colour = colours[i % len(colours)]
         traces.append((
