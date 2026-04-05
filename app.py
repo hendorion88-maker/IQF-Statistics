@@ -73,6 +73,9 @@ AIR_PROD_HIGH         = -20.0
 AIR_PROD_STOP         =   -10.0   # temperature at or above this = out of production
 # Evaporator temperature: must stay ≤ -37 °C during production; > -37 °C = alarm
 EVAP_ALARM_THRESHOLD  = -35.0
+# Grace period at start/end of each production cycle excluded from evap alarm counting
+# (ramp-up / ramp-down transients are normal and should not count as alarms)
+EVAP_GRACE_MIN        = 45
 
 # ===========================================================================
 # ── FILLER DATA FUNCTIONS ──────────────────────────────────────────────────
@@ -322,8 +325,16 @@ def _compute_production_stats(df, start_dt, end_dt):
     if not evap_raw.empty:
         evap_1m_full = evap_raw.resample("1min").mean().interpolate(method="time", limit=60)
         evap_aligned = evap_1m_full.reindex(air_1m.index).interpolate(method="time", limit=30)
-        # Alarm only when above threshold AND during a production window
-        evap_alarm_during = (evap_aligned > EVAP_ALARM_THRESHOLD) & prod_mask
+        # Build grace exclusion mask: ignore first/last EVAP_GRACE_MIN minutes of each cycle
+        grace = timedelta(minutes=EVAP_GRACE_MIN)
+        core_mask = pd.Series(False, index=air_1m.index)
+        for ps, pe in production_periods:
+            core_start = ps + grace
+            core_end   = pe - grace
+            if core_start < core_end:
+                core_mask[core_start:core_end] = True
+        # Alarm only when above threshold AND in production core (not ramp-up/down)
+        evap_alarm_during = (evap_aligned > EVAP_ALARM_THRESHOLD) & prod_mask & core_mask
         evap_alarm_minutes = int(evap_alarm_during.sum())
         evap_alarm_events  = int(
             ((~evap_alarm_during.shift(1).fillna(False)) & evap_alarm_during).sum()
@@ -344,7 +355,16 @@ def _compute_production_stats(df, start_dt, end_dt):
             if not _valid.empty:
                 avg_evap = round(float(_valid.mean()), 2)
                 min_evap = round(float(_valid.min()),  2)
-                evap_amin = int((_valid > EVAP_ALARM_THRESHOLD).sum())
+            # Alarm count excludes first/last EVAP_GRACE_MIN minutes (ramp-up/down)
+            _grace = timedelta(minutes=EVAP_GRACE_MIN)
+            _core_s = ps + _grace
+            _core_e = pe - _grace
+            if _core_s < _core_e:
+                _cidx = pd.date_range(_core_s, _core_e, freq="1min")
+                _core_slice = evap_1m_full.reindex(_cidx).interpolate(method="time", limit=30).dropna()
+                evap_amin = int((_core_slice > EVAP_ALARM_THRESHOLD).sum())
+            else:
+                evap_amin = 0  # cycle too short to have a core window
 
         # Night = 20:00–06:00, Day = 06:00–20:00
         # Count minutes in each band across the whole cycle
@@ -729,7 +749,7 @@ def build_superimposed_chart(df, start_dt, end_dt, production_periods=None):
         elif EVAP_TEMP_SUBSTR in vn_lower:
             threshold_traces.append(go.Scatter(
                 x=[start_dt, end_dt], y=[EVAP_ALARM_THRESHOLD, EVAP_ALARM_THRESHOLD],
-                mode="lines", name="Evap alarm limit (−37 °C)",
+                mode="lines", name="Evap alarm limit (−35 °C)",
                 line=dict(color="#fbbf24", width=1.5, dash="dot"),
                 yaxis=yaxis_key, hoverinfo="skip", showlegend=True,
             ))
@@ -1692,13 +1712,13 @@ def update_data_chart(n_clicks, start_date, end_date, sh, sm, eh, em):
         ),
         _kpi_card_dark(
             "Air Temp Alarm Events",
-            str(stats["air_alarm_events"]-2),  # subtract 2 events from start/end of period which are not real alarms
+            str(stats["air_alarm_events"]-2),  # subtract 2 initial false alarms at startup
             f"Air temp > −20 °C  ·  {stats['air_alarm_minutes']} min total",
             air_status,
         ),
         _kpi_card_dark(
             "Evap Temp Alarm Events",
-            str(stats["evap_alarm_events"]-2),  # subtract 2 events from start/end of period which are not real alarms
+            str(stats["evap_alarm_events"]),
             f"Evap temp > −35 °C during production  ·  {stats['evap_alarm_minutes']} min",
             evap_status,
         ),
