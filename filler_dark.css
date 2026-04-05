@@ -1,0 +1,177 @@
+/* ── Filler tab dark mode ───────────────────────── */
+
+/* ── Full page dark background ── */
+body {
+  background: #0f1117 !important;
+}
+.container-fluid {
+  background: #0f1117;
+}
+
+/* ── Main tabs (Filler Statistics / SCADA Analysis) ── */
+#main-tabs.nav-tabs {
+  background: #0f1117;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07) !important;
+  padding: 0 4px;
+}
+#main-tabs.nav-tabs .nav-link {
+  color: #7b82a0;
+  background: transparent;
+  border-color: transparent;
+  font-weight: 600;
+  font-size: 16px;
+  padding: 12px 28px;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  transition: color 0.15s, border-color 0.15s;
+}
+#main-tabs.nav-tabs .nav-link:hover {
+  color: #e8eaf0;
+  border-color: transparent;
+  background: transparent;
+}
+#main-tabs.nav-tabs .nav-link.active {
+  color: #fff;
+  background: transparent;
+  border-color: transparent;
+  border-bottom: 2px solid #6366F1 !important;
+}
+/* tab pane background */
+#main-tabs + .tab-content {
+  background: #0f1117;
+}
+
+#filler-dark-wrap {
+  background: #0f1117;
+  padding: 20px 16px 24px;
+  border-radius: 10px;
+  margin-top: 8px;
+}
+
+#filler-dark-wrap .filler-section-label {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: #7b82a0;
+  margin: 24px 0 10px;
+}
+
+/* Global – applies to SCADA KPI row and filler KPI rows */
+.filler-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  margin-bottom: 4px;
+}
+
+@media (max-width: 900px) {
+  .filler-kpi-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+/* Keep filler-dark-wrap scoping for any additional overrides */
+#filler-dark-wrap .filler-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  margin-bottom: 4px;
+}
+
+/* Bootstrap nav-tabs override */
+#filler-dark-wrap .nav-tabs {
+  border-bottom-color: rgba(255, 255, 255, 0.07);
+}
+#filler-dark-wrap .nav-tabs .nav-link {
+  color: #7b82a0;
+  background: transparent;
+  border-color: transparent;
+}
+#filler-dark-wrap .nav-tabs .nav-link:hover {
+  color: #e8eaf0;
+  border-color: rgba(255, 255, 255, 0.1);
+}
+#filler-dark-wrap .nav-tabs .nav-link.active {
+  background: #181c27;
+  border-color: rgba(255, 255, 255, 0.07) rgba(255, 255, 255, 0.07) #181c27;
+  color: #818cf8;
+}
+#filler-dark-wrap .tab-content,
+#filler-dark-wrap .tab-pane {
+  background: transparent;
+}
+
+/* Bootstrap card override */
+#filler-dark-wrap .card {
+  background: #181c27 !important;
+  border-color: rgba(255, 255, 255, 0.07) !important;
+}
+#filler-dark-wrap .card-header {
+  background: #1e2333 !important;
+  border-bottom-color: rgba(255, 255, 255, 0.07) !important;
+  color: #e8eaf0 !important;
+}
+#filler-dark-wrap .card-header h5 {
+  color: #e8eaf0;
+}
+#filler-dark-wrap .text-muted {
+  color: #7b82a0 !important;
+}
+#filler-dark-wrap hr {
+  border-color: rgba(255, 255, 255, 0.07);
+}
+
+/* Shift tab buttons */
+.filler-shift-btn {
+  font-size: 11px;
+  padding: 4px 10px;
+  border-radius: 5px;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  background: transparent;
+  color: #7b82a0;
+  cursor: pointer;
+  transition: all 0.15s;
+  font-family: monospace;
+  margin: 0;
+}
+.filler-shift-btn:hover {
+  border-color: rgba(99, 102, 241, 0.4);
+  color: #e8eaf0;
+}
+.filler-shift-btn.active {
+  background: rgba(99, 102, 241, 0.15);
+  border-color: rgba(99, 102, 241, 0.5);
+  color: #818cf8;
+}
+
+/* Detail tables */
+.filler-detail-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+  color: #e8eaf0;
+}
+.filler-detail-table th {
+  font-size: 10px;
+  font-weight: 500;
+  color: #7b82a0;
+  text-align: left;
+  padding: 6px 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.filler-detail-table td {
+  padding: 7px 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+}
+.filler-detail-table tbody tr:last-child td {
+  border-bottom: none;
+}
+.filler-detail-table tfoot td {
+  color: #fff;
+  font-weight: 500;
+  background: rgba(99, 102, 241, 0.05);
+}
