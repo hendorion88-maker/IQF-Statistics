@@ -1301,7 +1301,8 @@ app.layout = dbc.Container(fluid=True, children=[
                                         className="mt-3 text-muted small"), width="auto"),
                     ], className="mt-2"),
                     # Production KPI cards (filled by callback)
-                    html.Div(id="scada-prod-kpis", className="filler-kpi-grid mb-3"),
+                    html.Div(id="scada-prod-kpis", className="filler-kpi-grid mb-3",
+                             style={"display": "grid", "gridTemplateColumns": "repeat(4, 1fr)", "gap": "12px", "marginBottom": "12px"}),
                     dbc.Spinner(
                         dcc.Graph(id="chart-superimposed",
                                   config={"scrollZoom": True, "displayModeBar": True,
@@ -1364,10 +1365,11 @@ app.layout = dbc.Container(fluid=True, children=[
 
                 # KPI cards ──────────────────────────────────────────────────
                 html.Div("Overall Summary", className="filler-section-label"),
-                html.Div(id="filler-kpis-weight", className="filler-kpi-grid"),
+                html.Div(id="filler-kpis-weight", className="filler-kpi-grid",
+                         style={"display": "grid", "gridTemplateColumns": "repeat(4, 1fr)", "gap": "12px"}),
                 html.Div("Counter Summary", className="filler-section-label"),
                 html.Div(id="filler-kpis-counter", className="filler-kpi-grid",
-                         style={"marginBottom": "20px"}),
+                         style={"display": "grid", "gridTemplateColumns": "repeat(4, 1fr)", "gap": "12px", "marginBottom": "20px"}),
 
                 # Sub-tabs ───────────────────────────────────────────────────
                 dbc.Tabs(id="filler-subtabs", active_tab="filler-weight", children=[
