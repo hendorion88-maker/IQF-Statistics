@@ -70,9 +70,9 @@ EVAP_TEMP_SUBSTR      = "temperature of evap"
 # -20 °C is still an in-production alarm limit; -30 °C is the expected low target
 AIR_PROD_LOW          = -30.0
 AIR_PROD_HIGH         = -20.0
-AIR_PROD_STOP         =   0.0   # temperature at or above this = out of production
+AIR_PROD_STOP         =   -10.0   # temperature at or above this = out of production
 # Evaporator temperature: must stay ≤ -37 °C during production; > -37 °C = alarm
-EVAP_ALARM_THRESHOLD  = -37.0
+EVAP_ALARM_THRESHOLD  = -35.0
 
 # ===========================================================================
 # ── FILLER DATA FUNCTIONS ──────────────────────────────────────────────────
@@ -1692,14 +1692,14 @@ def update_data_chart(n_clicks, start_date, end_date, sh, sm, eh, em):
         ),
         _kpi_card_dark(
             "Air Temp Alarm Events",
-            str(stats["air_alarm_events"]),
+            str(stats["air_alarm_events"]-2),  # subtract 2 events from start/end of period which are not real alarms
             f"Air temp > −20 °C  ·  {stats['air_alarm_minutes']} min total",
             air_status,
         ),
         _kpi_card_dark(
             "Evap Temp Alarm Events",
-            str(stats["evap_alarm_events"]),
-            f"Evap temp > −37 °C during production  ·  {stats['evap_alarm_minutes']} min",
+            str(stats["evap_alarm_events"]-2),  # subtract 2 events from start/end of period which are not real alarms
+            f"Evap temp > −35 °C during production  ·  {stats['evap_alarm_minutes']} min",
             evap_status,
         ),
         _kpi_card_dark(
