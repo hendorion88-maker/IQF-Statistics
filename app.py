@@ -296,11 +296,6 @@ def _compute_production_stats(df, start_dt, end_dt):
     air_alarm_mask = air_1m > AIR_PROD_HIGH           # above -20 °C = insufficient cooling
 
     production_minutes = int(prod_mask.sum())
-    air_alarm_minutes  = int(air_alarm_mask.sum())
-    # Count ON-transitions (False→True) for alarm events
-    air_alarm_events = int(
-        ((~air_alarm_mask.shift(1).fillna(False)) & air_alarm_mask).sum()
-    )
 
     # Build list of production time windows (used for chart shading)
     production_periods = []
@@ -313,6 +308,22 @@ def _compute_production_stats(df, start_dt, end_dt):
             in_prod = False
     if in_prod and seg_start is not None:
         production_periods.append((seg_start, air_1m.index[-1]))
+
+    # Build grace core mask for air alarms: exclude first/last EVAP_GRACE_MIN minutes of each cycle
+    _grace = timedelta(minutes=EVAP_GRACE_MIN)
+    air_core_mask = pd.Series(False, index=air_1m.index)
+    for ps, pe in production_periods:
+        _cs = ps + _grace
+        _ce = pe - _grace
+        if _cs < _ce:
+            air_core_mask[_cs:_ce] = True
+
+    # Air alarm: above -20 °C, only within production core (grace excluded)
+    air_alarm_core = air_alarm_mask & air_core_mask
+    air_alarm_minutes = int(air_alarm_core.sum())
+    air_alarm_events  = int(
+        ((~air_alarm_core.shift(1).fillna(False)) & air_alarm_core).sum()
+    )
 
     # ── Evaporator temperature (ammonia) ────────────────────────────────────
     evap_alarm_events = evap_alarm_minutes = 0
@@ -1712,7 +1723,7 @@ def update_data_chart(n_clicks, start_date, end_date, sh, sm, eh, em):
         ),
         _kpi_card_dark(
             "Air Temp Alarm Events",
-            str(stats["air_alarm_events"]-2),  # subtract 2 initial false alarms at startup
+            str(stats["air_alarm_events"]),  # subtract 2 initial false alarms at startup
             f"Air temp > −20 °C  ·  {stats['air_alarm_minutes']} min total",
             air_status,
         ),
