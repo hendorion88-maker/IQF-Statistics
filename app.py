@@ -1413,7 +1413,7 @@ app.layout = dbc.Container(fluid=True, children=[
 
                 dbc.Row([
                     dbc.Col(
-                        dbc.Button("🔄 Refresh from Google Sheets", id="btn-filler-refresh",
+                        dbc.Button("🔄 Refresh", id="btn-filler-refresh",
                                    color="success", className="mt-2 mb-1"),
                         width="auto",
                     ),
