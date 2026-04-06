@@ -6,3 +6,4 @@ dash-bootstrap-components
 plotly
 gunicorn
 dash
+pydrive2
