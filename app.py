@@ -1427,17 +1427,17 @@ app.layout = dbc.Container(fluid=True, children=[
                 dcc.Store(id="filler-store"),
 
                 # KPI cards ──────────────────────────────────────────────────
-                html.Div("Overall Summary", className="filler-section-label"),
+                html.Div("Daily Counter Summary", className="filler-section-label"),
                 html.Div(id="filler-kpis-weight", className="filler-kpi-grid",
                          style={"display": "grid", "gridTemplateColumns": "repeat(4, 1fr)", "gap": "12px"}),
-                html.Div("Counter Summary", className="filler-section-label"),
+                html.Div("Total Counter Summary", className="filler-section-label"),
                 html.Div(id="filler-kpis-counter", className="filler-kpi-grid",
                          style={"display": "grid", "gridTemplateColumns": "repeat(4, 1fr)", "gap": "12px", "marginBottom": "20px"}),
 
                 # Sub-tabs ───────────────────────────────────────────────────
                 dbc.Tabs(id="filler-subtabs", active_tab="filler-weight", children=[
 
-                    dbc.Tab(label="⚖ Weight Analysis", tab_id="filler-weight", children=[
+                    dbc.Tab(label="⚖ Daily Analysis", tab_id="filler-weight", children=[
                         dbc.Row([
                             dbc.Col(dbc.Spinner(dcc.Graph(id="fig-boxes"), color="success"), md=6),
                             dbc.Col(dbc.Spinner(dcc.Graph(id="fig-avg-weight"), color="success"), md=6),
@@ -1457,7 +1457,7 @@ app.layout = dbc.Container(fluid=True, children=[
                         ], className="mt-2 mb-3 shadow-sm"),
                     ]),
 
-                    dbc.Tab(label="🔢 Counter Analysis", tab_id="filler-counter", children=[
+                    dbc.Tab(label="🔢 Total Analysis", tab_id="filler-counter", children=[
                         dbc.Row([
                             dbc.Col(dbc.Spinner(dcc.Graph(id="fig-counter-total"), color="primary"), md=6),
                             dbc.Col(dbc.Spinner(dcc.Graph(id="fig-tc-increment"), color="secondary"), md=6),
