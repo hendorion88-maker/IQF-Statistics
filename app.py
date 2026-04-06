@@ -2,8 +2,8 @@
 IQF Unified Dashboard
 ======================
 Merges:
-  • Filler Statistics  (Google Sheets data, Chart.js → Plotly)
-  • SCADA Analysis     (Data_log0.csv + Alarm_log0.csv)
+  â€¢ Filler Statistics  (Google Sheets data, Chart.js → Plotly)
+  â€¢ SCADA Analysis     (Data_log0.csv + Alarm_log0.csv)
 
 HOW TO USE
 ----------
@@ -68,18 +68,18 @@ COL_TC    = "TC"
 # ===========================================================================
 # SCADA CONFIG
 # ===========================================================================
-TEMP_SCALE = 10.0   # SCADA stores temperatures × 10
+TEMP_SCALE = 10.0   # SCADA stores temperatures أ— 10
 
 # ── Production monitoring thresholds ────────────────────────────────────────
 # Variable name substrings (matched case-insensitively against VarName column)
 AIR_TUNNEL_SUBSTR     = "air temperature in tunnel"
 EVAP_TEMP_SUBSTR      = "temperature of evap"
-# Air-temperature-in-tunnel: any value below 0 °C = production running; ≥ 0 °C = stopped
+# Air-temperature-in-tunnel: any value below 0 °C = production running; â‰¥ 0 °C = stopped
 # -20 °C is still an in-production alarm limit; -30 °C is the expected low target
 AIR_PROD_LOW          = -30.0
 AIR_PROD_HIGH         = -20.0
 AIR_PROD_STOP         =   -10.0   # temperature at or above this = out of production
-# Evaporator temperature: must stay ≤ -37 °C during production; > -37 °C = alarm
+# Evaporator temperature: must stay â‰¤ -37 °C during production; > -37 °C = alarm
 EVAP_ALARM_THRESHOLD  = -35.0
 # Grace period at start/end of each production cycle excluded from evap alarm counting
 # (ramp-up / ramp-down transients are normal and should not count as alarms)
@@ -209,7 +209,7 @@ def compute_metrics(df: pd.DataFrame) -> dict:
     t1d=final["tt1"]-base_tt1; t2d=final["tt2"]-base_tt2; t3d=final["tt3"]-base_tt3
     total_gap = tc_delta - total_wt
     gap_pct_total = round(total_gap/tc_delta*100,3) if tc_delta else 0
-    try:    dr=f"{shifts[0]['date']} – {shifts[-1]['date']}"
+    try:    dr=f"{shifts[0]['date']} — {shifts[-1]['date']}"
     except: dr=""
     td = tc_delta if tc_delta else 1
 
@@ -404,7 +404,7 @@ def _compute_production_stats(df, start_dt, end_dt):
             else:
                 evap_amin = 0  # cycle too short to have a core window
 
-        # Night = 20:00–06:00, Day = 06:00–20:00
+        # Night = 20:00—06:00, Day = 06:00—20:00
         # Count minutes in each band across the whole cycle
         _ts_range = pd.date_range(ps, pe, freq="1min")
         night_min = sum(1 for t in _ts_range if t.hour >= 20 or t.hour < 6)
@@ -447,7 +447,7 @@ def _build_cycles_table(cycles):
         fdf = load_filler_excel(CACHE_XLS)
         filler_shifts = compute_metrics(fdf)["shifts"]
     except Exception:
-        pass   # graceful – cross-reference section will say "no data"
+        pass   # graceful — cross-reference section will say "no data"
 
     # ── Fix date_dt values that were mis-parsed by Excel locale ─────────────
     # Problem 1: dates like "12/3/2026" entered in EU format get stored by
@@ -721,7 +721,7 @@ def build_superimposed_chart(df, start_dt, end_dt, production_periods=None):
                     xanchor="center", x=0.5, font=dict(size=11),
                     bgcolor="rgba(255,255,255,0.85)", bordercolor="#cccccc", borderwidth=1),
         hovermode="x unified",
-        title="All Parameters – Superimposed Chart",
+        title="All Parameters — Superimposed Chart",
         margin=dict(t=110, b=80, l=60, r=60),
     )
 
@@ -774,20 +774,20 @@ def build_superimposed_chart(df, start_dt, end_dt, production_periods=None):
         if AIR_TUNNEL_SUBSTR in vn_lower:
             threshold_traces.append(go.Scatter(
                 x=[start_dt, end_dt], y=[AIR_PROD_HIGH, AIR_PROD_HIGH],
-                mode="lines", name="Air temp alarm limit (−20 °C)",
+                mode="lines", name="Air temp alarm limit (-20 °C)",
                 line=dict(color="#ef4444", width=1.5, dash="dot"),
                 yaxis=yaxis_key, hoverinfo="skip", showlegend=True,
             ))
             threshold_traces.append(go.Scatter(
                 x=[start_dt, end_dt], y=[AIR_PROD_LOW, AIR_PROD_LOW],
-                mode="lines", name="Air temp prod. low (−30 °C)",
+                mode="lines", name="Air temp prod. low (-30 °C)",
                 line=dict(color="#f97316", width=1, dash="dot"),
                 yaxis=yaxis_key, hoverinfo="skip", showlegend=True,
             ))
         elif EVAP_TEMP_SUBSTR in vn_lower:
             threshold_traces.append(go.Scatter(
                 x=[start_dt, end_dt], y=[EVAP_ALARM_THRESHOLD, EVAP_ALARM_THRESHOLD],
-                mode="lines", name="Evap alarm limit (−35 °C)",
+                mode="lines", name="Evap alarm limit (-35 °C)",
                 line=dict(color="#fbbf24", width=1.5, dash="dot"),
                 yaxis=yaxis_key, hoverinfo="skip", showlegend=True,
             ))
@@ -914,7 +914,7 @@ AMBER_CLR  = "#F59E0B"
 
 CHART_BG   = {"plot_bgcolor": "#181c27", "paper_bgcolor": "#0f1117"}
 
-# shared dark axis base – used by _filler_dark_layout
+# shared dark axis base — used by _filler_dark_layout
 _DA = dict(
     gridcolor="rgba(255,255,255,0.06)",
     tickfont=dict(color="#7b82a0", size=10),
@@ -1091,7 +1091,7 @@ def build_counter_gap_chart(shifts):
         x=labels, y=[s["gap"] for s in shifts], marker_color=colors,
         hovertemplate="<b>%{x}</b><br>Gap: %{y:+,.0f}<extra></extra>",
     ))
-    fig.update_layout(**_filler_dark_layout("Gap per Shift (TC increment − DC)", "Count",
+    fig.update_layout(**_filler_dark_layout("Gap per Shift (TC increment - DC)", "Count",
                                              margin=dict(t=50, b=100, l=70, r=20)))
     return fig
 
@@ -1347,18 +1347,21 @@ app.layout = dbc.Container(fluid=True, children=[
     # ── Main Tabs ────────────────────────────────────────────────────────────
     dbc.Tabs(id="main-tabs", active_tab="tab-scada", children=[
 
-        # ╔══════════════════════════════════════════════════════════════════╗
-        # ║  TAB 1 – SCADA Analysis                                          ║
-        # ╚══════════════════════════════════════════════════════════════════╝
+        # â•”â•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•—
+        # â•‘  TAB 1 — SCADA Analysis                                          â•‘
+        # â•ڑâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•‌
         dbc.Tab(label="📡 SCADA Analysis", tab_id="tab-scada", children=[
 
             # Shared time picker (used by both SCADA sub-tabs)
             _time_picker("shared", default_start=scada_min, default_end=scada_max),
 
             # ── Single load button for both sub-tabs ─────────────────────
+            dcc.Download(id="download-scada-report"),
             dbc.Row([
-                dbc.Col(dbc.Button("📊 Load SCADA Data", id="btn-scada-load",
+                dbc.Col(dbc.Button("📊 Load SCADA SCADA Data", id="btn-scada-load",
                                    color="primary", className="mt-1 mb-2"), width="auto"),
+                dbc.Col(dbc.Button("📄 Export Report (PDF)", id="btn-export-report",
+                                   color="secondary", outline=True, className="mt-1 mb-2"), width="auto"),
                 dbc.Col(html.Div(id="data-status",
                                 className="mt-3 text-muted small"), width="auto"),
                 dbc.Col(html.Div(id="alarm-status",
@@ -1384,7 +1387,7 @@ app.layout = dbc.Container(fluid=True, children=[
                 ]),
 
                 # ── Alarm Analysis ────────────────────────────────────────
-                dbc.Tab(label="🚨 Alarm Analysis", tab_id="scada-alarm", children=[
+                dbc.Tab(label="⚠ Alarm Analysis", tab_id="scada-alarm", children=[
                     dbc.Row(id="alarm-kpis", className="mb-3 mt-2"),
                     dbc.Spinner(dcc.Graph(id="chart-alarm-timeline",
                                          config={"scrollZoom": True},
@@ -1404,16 +1407,16 @@ app.layout = dbc.Container(fluid=True, children=[
             ]),
         ]),
 
-        # ╔══════════════════════════════════════════════════════════════════╗
-        # ║  TAB 2 – Filler Statistics                                       ║
-        # ╚══════════════════════════════════════════════════════════════════╝
+        # â•”â•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•—
+        # â•‘  TAB 2 — Filler Statistics                                       â•‘
+        # â•ڑâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•گâ•‌
         dbc.Tab(label="🏭 Filler Statistics", tab_id="tab-filler", children=[
 
             html.Div(id="filler-dark-wrap", children=[
 
                 dbc.Row([
                     dbc.Col(
-                        dbc.Button("🔄 Refresh", id="btn-filler-refresh",
+                        dbc.Button("🔄 Refresh from Google Sheets", id="btn-filler-refresh",
                                    color="success", className="mt-2 mb-1"),
                         width="auto",
                     ),
@@ -1427,17 +1430,17 @@ app.layout = dbc.Container(fluid=True, children=[
                 dcc.Store(id="filler-store"),
 
                 # KPI cards ──────────────────────────────────────────────────
-                html.Div("Daily Counter Summary", className="filler-section-label"),
+                html.Div("Overall Summary", className="filler-section-label"),
                 html.Div(id="filler-kpis-weight", className="filler-kpi-grid",
                          style={"display": "grid", "gridTemplateColumns": "repeat(4, 1fr)", "gap": "12px"}),
-                html.Div("Total Counter Summary", className="filler-section-label"),
+                html.Div("Counter Summary", className="filler-section-label"),
                 html.Div(id="filler-kpis-counter", className="filler-kpi-grid",
                          style={"display": "grid", "gridTemplateColumns": "repeat(4, 1fr)", "gap": "12px", "marginBottom": "20px"}),
 
                 # Sub-tabs ───────────────────────────────────────────────────
                 dbc.Tabs(id="filler-subtabs", active_tab="filler-weight", children=[
 
-                    dbc.Tab(label="⚖ Daily Analysis", tab_id="filler-weight", children=[
+                    dbc.Tab(label="⚖ Weight Analysis", tab_id="filler-weight", children=[
                         dbc.Row([
                             dbc.Col(dbc.Spinner(dcc.Graph(id="fig-boxes"), color="success"), md=6),
                             dbc.Col(dbc.Spinner(dcc.Graph(id="fig-avg-weight"), color="success"), md=6),
@@ -1457,7 +1460,7 @@ app.layout = dbc.Container(fluid=True, children=[
                         ], className="mt-2 mb-3 shadow-sm"),
                     ]),
 
-                    dbc.Tab(label="🔢 Total Analysis", tab_id="filler-counter", children=[
+                    dbc.Tab(label="🎛 Counter Analysis", tab_id="filler-counter", children=[
                         dbc.Row([
                             dbc.Col(dbc.Spinner(dcc.Graph(id="fig-counter-total"), color="primary"), md=6),
                             dbc.Col(dbc.Spinner(dcc.Graph(id="fig-tc-increment"), color="secondary"), md=6),
@@ -1489,7 +1492,7 @@ app.layout = dbc.Container(fluid=True, children=[
 # ===========================================================================
 
 # ---------------------------------------------------------------------------
-# Filler – refresh data from Google Sheets
+# Filler — refresh data from Google Sheets
 # ---------------------------------------------------------------------------
 @app.callback(
     Output("filler-store",           "data"),
@@ -1518,7 +1521,7 @@ def refresh_filler(n_clicks):
         df = load_filler_excel(CACHE_XLS)
         m  = compute_metrics(df)
     except Exception as exc:
-        err = f"⚠ {exc}"
+        err = f"⚠  {exc}"
         return (None, err,
                 [], [],
                 *[empty_fig]*10,
@@ -1543,9 +1546,9 @@ def refresh_filler(n_clicks):
                        f"Avg {m['avg_over_per_shift']:+.2f} Kg / shift",
                        "bad" if m["total_over"] < 0 else "warn"),
         _kpi_card_dark("Avg Overfill/sh",  f"{m['avg_over_per_shift']:+.2f} Kg",
-                       f"Total ÷ {m['n_shifts']} shifts",       "warn"),
+                       f"Total / {m['n_shifts']} shifts",         "warn"),
         _kpi_card_dark("Device Accuracy",  f"{m['device_accuracy']:.3f}%",
-                       "100 − ((avg_w − 10) / 10)",
+                       "100 - ((avg_w - 10) / 10)",
                        "good" if m["device_accuracy"] >= 99.9 else "bad"),
         _kpi_card_dark("Underfill Shifts", str(m["underfill_n"]),
                        f"Of {m['n_shifts']} total",
@@ -1588,7 +1591,7 @@ def refresh_filler(n_clicks):
     fig_gap            = build_counter_gap_chart(shifts)
     fig_delta_split    = build_counter_delta_split_chart(m)
 
-    # ── v3 Shift detail – tabbed per-shift track view ───────────────────────
+    # ── v3 Shift detail — tabbed per-shift track view ───────────────────────
     shift_buttons = [
         html.Button(
             f"S{s['shift']} · {'N' if s['type'] == 'night' else 'L'} {s['date']}",
@@ -1675,7 +1678,7 @@ def refresh_filler(n_clicks):
 
 
 # ---------------------------------------------------------------------------
-# Filler – shift tab switching (pattern-matching, client-side style)
+# Filler — shift tab switching (pattern-matching, client-side style)
 # ---------------------------------------------------------------------------
 @app.callback(
     Output({"type": "filler-shift-panel", "index": ALL}, "style"),
@@ -1703,7 +1706,7 @@ def _switch_shift_tab(n_clicks_list):
 
 
 # ---------------------------------------------------------------------------
-# SCADA – Data Logs
+# SCADA — Data Logs
 # ---------------------------------------------------------------------------
 @app.callback(
     Output("chart-superimposed",     "figure"),
@@ -1722,11 +1725,11 @@ def _switch_shift_tab(n_clicks_list):
 def update_data_chart(n_clicks, start_date, end_date, sh, sm, eh, em):
     df = load_scada_data()
     if df.empty:
-        return go.Figure(), "⚠ Data_log0.csv not found or empty.", [], []
+        return go.Figure(), "⚠  Data_log0.csv not found or empty.", [], []
     start_dt = _parse_dt(start_date, sh, sm)
     end_dt   = _parse_dt(end_date,   eh, em)
     if end_dt <= start_dt:
-        return go.Figure(), "⚠ End time must be after start time.", [], []
+        return go.Figure(), "⚠  End time must be after start time.", [], []
 
     # ── Production statistics ────────────────────────────────────────────
     stats = _compute_production_stats(df, start_dt, end_dt)
@@ -1749,13 +1752,13 @@ def update_data_chart(n_clicks, start_date, end_date, sh, sm, eh, em):
         _kpi_card_dark(
             "Air Temp Alarm Events",
             str(stats["air_alarm_events"]),  # subtract 2 initial false alarms at startup
-            f"Air temp > −20 °C  ·  {stats['air_alarm_minutes']} min total",
+            f"Air temp > -20 °C  ·  {stats['air_alarm_minutes']} min total",
             air_status,
         ),
         _kpi_card_dark(
             "Evap Temp Alarm Events",
             str(stats["evap_alarm_events"]),
-            f"Evap temp > −35 °C during production  ·  {stats['evap_alarm_minutes']} min",
+            f"Evap temp > -35 °C during production  ·  {stats['evap_alarm_minutes']} min",
             evap_status,
         ),
         _kpi_card_dark(
@@ -1776,7 +1779,7 @@ def update_data_chart(n_clicks, start_date, end_date, sh, sm, eh, em):
 
 
 # ---------------------------------------------------------------------------
-# SCADA – Alarm Analysis
+# SCADA — Alarm Analysis
 # ---------------------------------------------------------------------------
 @app.callback(
     Output("chart-alarm-timeline",   "figure"),
@@ -1798,13 +1801,13 @@ def update_alarm_charts(n_clicks, start_date, end_date, sh, sm, eh, em):
     alarm_df = load_alarms()
     if alarm_df.empty:
         empty = go.Figure()
-        return empty, empty, empty, [], html.Div("⚠ Alarm_log0.csv not found or empty."), ""
+        return empty, empty, empty, [], html.Div("⚠  Alarm_log0.csv not found or empty."), ""
 
     start_dt = _parse_dt(start_date, sh, sm)
     end_dt   = _parse_dt(end_date,   eh, em)
     if end_dt <= start_dt:
         empty = go.Figure()
-        return empty, empty, empty, [], html.Div("⚠ End must be after start."), ""
+        return empty, empty, empty, [], html.Div("⚠  End must be after start."), ""
 
     period_df = alarm_df[
         (alarm_df["TimeString"] >= start_dt) &
@@ -1852,10 +1855,347 @@ def update_alarm_charts(n_clicks, start_date, end_date, sh, sm, eh, em):
     return fig_timeline, fig_freq, fig_dur, kpis, alarm_table, status
 
 
+# ---------------------------------------------------------------------------
+# SCADA - Export PDF Report
+# ---------------------------------------------------------------------------
+@app.callback(
+    Output("download-scada-report", "data"),
+    Input("btn-export-report",      "n_clicks"),
+    State("shared-start-date",      "value"),
+    State("shared-end-date",        "value"),
+    State("shared-start-hour",      "value"),
+    State("shared-start-min",       "value"),
+    State("shared-end-hour",        "value"),
+    State("shared-end-min",         "value"),
+    prevent_initial_call=True,
+)
+def export_scada_report(n_clicks, start_date, end_date, sh, sm, eh, em):
+    try:
+        import plotly.io as pio
+        from reportlab.lib.pagesizes import landscape, A4
+        from reportlab.lib.units import mm
+        from reportlab.lib.styles import ParagraphStyle
+        from reportlab.platypus import (
+            SimpleDocTemplate, Paragraph, Spacer,
+            Table, TableStyle, Image as RLImage, PageBreak,
+        )
+        from reportlab.platypus.flowables import HRFlowable
+        from reportlab.lib.colors import HexColor, white
+    except ImportError as exc:
+        print("[PDF Export] Missing dependency: %s - run: pip install reportlab kaleido" % exc)
+        raise dash.exceptions.PreventUpdate
+
+    start_dt = _parse_dt(start_date, sh, sm)
+    end_dt   = _parse_dt(end_date,   eh, em)
+
+    df       = load_scada_data()
+    alarm_df = load_alarms()
+    stats    = _compute_production_stats(df, start_dt, end_dt) if not df.empty else {}
+
+    # Colors - light theme
+    C_PAGE   = white
+    C_HDR    = HexColor("#1E3A5F")
+    C_HDR_T  = white
+    C_ALT    = HexColor("#F7FAFC")
+    C_ROW    = white
+    C_BORDER = HexColor("#CBD5E0")
+    C_TXT    = HexColor("#1A202C")
+    C_MUTED  = HexColor("#4A5568")
+    C_ACCENT = HexColor("#3B4FE0")
+    C_GREEN  = HexColor("#1D6940")
+    C_RED    = HexColor("#9B2335")
+    C_AMBER  = HexColor("#92600A")
+
+    W, H = landscape(A4)
+    buf  = io.BytesIO()
+    doc  = SimpleDocTemplate(
+        buf,
+        pagesize=landscape(A4),
+        leftMargin=15*mm, rightMargin=15*mm,
+        topMargin=22*mm, bottomMargin=16*mm,
+    )
+    PW = W - 30*mm
+
+    _ps_cache = {}
+    def _ps(name, **kw):
+        key = (name, tuple(sorted(kw.items())))
+        if key not in _ps_cache:
+            defaults = dict(fontName="Helvetica", fontSize=10,
+                            textColor=C_TXT, leading=14)
+            defaults.update(kw)
+            _ps_cache[key] = ParagraphStyle(name + str(len(_ps_cache)), **defaults)
+        return _ps_cache[key]
+
+    S_TITLE = _ps("title", fontSize=20, fontName="Helvetica-Bold",
+                           textColor=C_HDR, leading=24, spaceAfter=2)
+    S_ACCENT = _ps("accent", fontSize=12, fontName="Helvetica-Bold",
+                             textColor=C_ACCENT, leading=16, spaceAfter=4)
+    S_META  = _ps("meta",  fontSize=9,  textColor=C_MUTED, leading=13)
+    S_SEC   = _ps("sec",   fontSize=11, fontName="Helvetica-Bold",
+                           textColor=C_HDR, leading=15, spaceBefore=6, spaceAfter=3,
+                           backColor=HexColor("#DBEAFE"), borderPad=4)
+    S_WARN  = _ps("warn",  fontSize=9, textColor=C_AMBER, leading=13,
+                           fontName="Helvetica-Oblique")
+    S_BODY  = _ps("body",  fontSize=9, textColor=C_MUTED, leading=13)
+
+    def _tbl(data, col_widths, extra_cmds=None):
+        cmds = [
+            ("BACKGROUND",    (0, 0), (-1, -1), C_ROW),
+            ("TEXTCOLOR",     (0, 0), (-1, -1), C_TXT),
+            ("FONTSIZE",      (0, 0), (-1, -1), 8),
+            ("FONTNAME",      (0, 0), (-1, -1), "Helvetica"),
+            ("ALIGN",         (0, 0), (-1, -1), "CENTER"),
+            ("VALIGN",        (0, 0), (-1, -1), "MIDDLE"),
+            ("TOPPADDING",    (0, 0), (-1, -1), 5),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+            ("LEFTPADDING",   (0, 0), (-1, -1), 6),
+            ("RIGHTPADDING",  (0, 0), (-1, -1), 6),
+            ("GRID",          (0, 0), (-1, -1), 0.4, C_BORDER),
+            ("BACKGROUND",    (0, 0), (-1, 0), C_HDR),
+            ("TEXTCOLOR",     (0, 0), (-1, 0), C_HDR_T),
+            ("FONTNAME",      (0, 0), (-1, 0), "Helvetica-Bold"),
+        ]
+        for r in range(1, len(data)):
+            cmds.append(("BACKGROUND", (0, r), (-1, r),
+                          C_ALT if r % 2 == 0 else C_ROW))
+        if extra_cmds:
+            cmds.extend(extra_cmds)
+        t = Table(data, colWidths=col_widths, repeatRows=1)
+        t.setStyle(TableStyle(cmds))
+        return t
+
+    def _chart_image(fig, w_pt, h_pt):
+        try:
+            img_bytes = pio.to_image(fig, format="png",
+                                     width=int(w_pt*2), height=int(h_pt*2), scale=1)
+            return RLImage(io.BytesIO(img_bytes), width=w_pt, height=h_pt)
+        except Exception as e:
+            return Paragraph("<i>Chart not rendered (pip install kaleido): %s</i>" % e, S_WARN)
+
+    story = []
+
+    # =========================================================================
+    # Page 1 - Cover + KPI Summary + Production Cycles
+    # =========================================================================
+    story.append(Spacer(1, 4*mm))
+    story.append(Paragraph("IQF Production Report", S_TITLE))
+    story.append(Paragraph("SCADA Analysis", S_ACCENT))
+    story.append(HRFlowable(width="100%", thickness=1.5, color=C_ACCENT, spaceAfter=5))
+    story.append(Paragraph(
+        "Period:  %s  to  %s" % (start_dt.strftime("%d/%m/%Y %H:%M"),
+                                  end_dt.strftime("%d/%m/%Y %H:%M")), S_META))
+    story.append(Paragraph(
+        "Generated:  %s" % datetime.now().strftime("%d/%m/%Y %H:%M:%S"), S_META))
+    story.append(Spacer(1, 4*mm))
+
+    if stats:
+        pct   = stats.get("production_pct", 0)
+        n_air = stats["air_alarm_events"]
+        n_evp = stats["evap_alarm_events"]
+        kpi_rows = [
+            ["KPI", "Value", "Details"],
+            ["Total Period",            "%s h" % stats["total_hours"],      ""],
+            ["Production Time",         "%s h" % stats["production_hours"], "%.1f%% of period" % pct],
+            ["Production Cycles",       str(len(stats["cycles"])),          "Distinct freeze cycles"],
+            ["Air Temp Alarm Events",   str(n_air),  "Air > -20 degC  |  %s min total" % stats["air_alarm_minutes"]],
+            ["Evap Temp Alarm Events",  str(n_evp),  "Evap > -35 degC during production  |  %s min" % stats["evap_alarm_minutes"]],
+        ]
+        kpi_extra = [
+            ("ALIGN",     (0, 0), (0, -1), "LEFT"),
+            ("ALIGN",     (2, 0), (2, -1), "LEFT"),
+            ("TEXTCOLOR", (1, 2), (1, 2), C_GREEN if pct  >= 50 else C_AMBER),
+            ("TEXTCOLOR", (1, 4), (1, 4), C_RED   if n_air > 0 else C_GREEN),
+            ("TEXTCOLOR", (1, 5), (1, 5), C_RED   if n_evp > 0 else C_GREEN),
+            ("FONTNAME",  (1, 1), (1, -1), "Helvetica-Bold"),
+        ]
+        story.append(Paragraph("Production KPIs", S_SEC))
+        story.append(Spacer(1, 2*mm))
+        story.append(_tbl(kpi_rows, [PW*0.28, PW*0.14, PW*0.58], kpi_extra))
+
+    if stats and stats.get("cycles"):
+        cycles = stats["cycles"]
+        story.append(Spacer(1, 4*mm))
+        story.append(Paragraph("Production Cycles", S_SEC))
+        story.append(Spacer(1, 2*mm))
+        cyc_rows  = [["#", "Start", "End", "Duration", "Shift",
+                       "Avg Air (degC)", "Avg Evap (degC)", "Evap Alarm (min)"]]
+        cyc_extra = [("ALIGN", (0, 0), (-1, -1), "CENTER")]
+        for i, c in enumerate(cycles, 1):
+            av_air  = ("%.1f" % c["avg_air"])  if c.get("avg_air")  is not None else "-"
+            av_evap = ("%.1f" % c["avg_evap"]) if c.get("avg_evap") is not None else "-"
+            cyc_rows.append([
+                str(c["cycle"]),
+                c["start"].strftime("%d/%m %H:%M"),
+                c["end"].strftime("%d/%m %H:%M"),
+                "%dh %02dm" % (c["duration_min"] // 60, c["duration_min"] % 60),
+                c["shift_type"].capitalize(),
+                av_air, av_evap,
+                str(c.get("evap_alarm_min", 0)),
+            ])
+            air_v = c.get("avg_air")
+            if air_v is not None:
+                cyc_extra.append(("TEXTCOLOR", (5, i), (5, i),
+                    C_GREEN if air_v <= -20 else (C_AMBER if air_v < -10 else C_RED)))
+            evp_v = c.get("avg_evap")
+            if evp_v is not None:
+                cyc_extra.append(("TEXTCOLOR", (6, i), (6, i),
+                    C_GREEN if evp_v <= -35 else C_RED))
+            if c.get("evap_alarm_min", 0) > 0:
+                cyc_extra.append(("TEXTCOLOR", (7, i), (7, i), C_RED))
+        col_w = [PW*f for f in [0.06, 0.12, 0.12, 0.10, 0.09, 0.14, 0.14, 0.13]]
+        story.append(_tbl(cyc_rows, col_w, cyc_extra))
+
+    # =========================================================================
+    # Page 2 - Sensor Data Chart (chart title embedded, no extra title paragraph)
+    # =========================================================================
+    if not df.empty:
+        story.append(PageBreak())
+        fig_super = build_superimposed_chart(
+            df, start_dt, end_dt,
+            stats.get("production_periods") if stats else None,
+        )
+        chart_title = "Sensor Data - Superimposed Chart  |  %s  to  %s" % (
+            start_dt.strftime("%d/%m/%Y %H:%M"),
+            end_dt.strftime("%d/%m/%Y %H:%M"),
+        )
+        avail_h = H - 38*mm
+        fig_super.update_layout(
+            title=dict(text=chart_title, font=dict(color="#1A202C", size=11), x=0, xanchor="left"),
+            plot_bgcolor="#ffffff", paper_bgcolor="#ffffff",
+            font=dict(color="#1A202C"),
+            legend=dict(bgcolor="rgba(255,255,255,0.9)",
+                        bordercolor="#CBD5E0", borderwidth=1,
+                        font=dict(color="#1A202C", size=9),
+                        orientation="h", yanchor="bottom", y=1.02,
+                        xanchor="center", x=0.5),
+            xaxis=dict(gridcolor="#E2E8F0", linecolor="#CBD5E0", tickfont=dict(color="#4A5568")),
+            yaxis=dict(gridcolor="#E2E8F0", linecolor="#CBD5E0", tickfont=dict(color="#4A5568")),
+            margin=dict(t=120, b=60, l=80, r=80),
+        )
+        story.append(_chart_image(fig_super, PW, min(avail_h, PW * 0.48)))
+
+    # =========================================================================
+    # Page 3 - Alarm Frequency + Duration + Summary Table
+    # =========================================================================
+    if not alarm_df.empty:
+        story.append(PageBreak())
+        story.append(Paragraph("Alarm Analysis", S_SEC))
+        story.append(Spacer(1, 3*mm))
+
+        fig_freq = build_alarm_frequency_chart(alarm_df, start_dt, end_dt)
+        fig_dur  = build_alarm_duration_chart(alarm_df, start_dt, end_dt)
+        for fig_a in [fig_freq, fig_dur]:
+            fig_a.update_layout(
+                plot_bgcolor="#ffffff", paper_bgcolor="#ffffff",
+                font=dict(color="#1A202C"),
+                xaxis=dict(gridcolor="#E2E8F0", tickfont=dict(color="#4A5568")),
+                yaxis=dict(gridcolor="#E2E8F0", tickfont=dict(color="#4A5568")),
+                height=340, margin=dict(l=250, t=45, b=45, r=20),
+            )
+
+        half_w = (PW - 3*mm) / 2
+        half_h = half_w * 340 / 540
+        try:
+            img_f = io.BytesIO(pio.to_image(fig_freq, format="png",
+                                             width=int(half_w*2), height=int(half_h*2), scale=1))
+            img_d = io.BytesIO(pio.to_image(fig_dur,  format="png",
+                                             width=int(half_w*2), height=int(half_h*2), scale=1))
+            side_tbl = Table(
+                [[RLImage(img_f, width=half_w, height=half_h),
+                  RLImage(img_d, width=half_w, height=half_h)]],
+                colWidths=[half_w, half_w],
+            )
+            side_tbl.setStyle(TableStyle([
+                ("ALIGN",         (0,0), (-1,-1), "CENTER"),
+                ("VALIGN",        (0,0), (-1,-1), "TOP"),
+                ("LEFTPADDING",   (0,0), (-1,-1), 0),
+                ("RIGHTPADDING",  (0,0), (-1,-1), 2*mm),
+                ("TOPPADDING",    (0,0), (-1,-1), 0),
+                ("BOTTOMPADDING", (0,0), (-1,-1), 0),
+            ]))
+            story.append(side_tbl)
+        except Exception as e:
+            story.append(Paragraph("<i>Charts not rendered: %s</i>" % e, S_WARN))
+
+        story.append(Spacer(1, 4*mm))
+        story.append(Paragraph("Alarm Frequency Summary", S_SEC))
+        story.append(Spacer(1, 2*mm))
+
+        period_alarms = alarm_df[
+            (alarm_df["TimeString"] >= start_dt) &
+            (alarm_df["TimeString"] <= end_dt) &
+            (alarm_df["MsgClass"] == 1)
+        ]
+        summary_dict = {}
+        for msg in period_alarms["MsgText"].unique():
+            rows = period_alarms[period_alarms["MsgText"] == msg].sort_values("TimeString")
+            came = rows[rows["StateAfter"] == 1]
+            gone = rows[rows["StateAfter"] == 0]
+            total_sec, count = 0.0, 0
+            for _, row in came.iterrows():
+                t0    = row["TimeString"]
+                later = gone[gone["TimeString"] > t0]
+                t1    = later.iloc[0]["TimeString"] if not later.empty else end_dt
+                total_sec += (t1 - t0).total_seconds()
+                count += 1
+            summary_dict[msg] = {"count": count, "total_min": round(total_sec / 60, 1)}
+        summary_sorted = sorted(summary_dict.items(), key=lambda x: x[1]["count"], reverse=True)
+        if summary_sorted:
+            alm_rows  = [["Alarm Message", "Activations",
+                           "Total Duration (min)", "Avg Duration (min)"]]
+            alm_extra = [("ALIGN", (0, 0), (0, -1), "LEFT")]
+            for i, (msg, d) in enumerate(summary_sorted, 1):
+                avg = round(d["total_min"] / d["count"], 1) if d["count"] else 0
+                alm_rows.append([msg, str(d["count"]), str(d["total_min"]), str(avg)])
+                col = C_RED if d["count"] > 5 else (C_AMBER if d["count"] > 2 else C_GREEN)
+                alm_extra.append(("TEXTCOLOR", (1, i), (1, i), col))
+                alm_extra.append(("FONTNAME",  (1, i), (1, i), "Helvetica-Bold"))
+            story.append(_tbl(alm_rows,
+                               [PW*0.55, PW*0.14, PW*0.17, PW*0.14], alm_extra))
+        else:
+            story.append(Paragraph("No process alarms in the selected period.", S_BODY))
+
+    # Page decorator - white background, dark navy header bar, light footer line
+    def _page_decor(canvas, doc):
+        canvas.saveState()
+        canvas.setFillColor(C_PAGE)
+        canvas.rect(0, 0, W, H, stroke=0, fill=1)
+        canvas.setFillColor(C_HDR)
+        canvas.rect(0, H - 10*mm, W, 10*mm, stroke=0, fill=1)
+        canvas.setFillColor(white)
+        canvas.setFont("Helvetica-Bold", 9)
+        canvas.drawString(15*mm, H - 6.5*mm, "IQF Production Dashboard  -  SCADA Report")
+        canvas.setFont("Helvetica", 9)
+        canvas.drawRightString(
+            W - 15*mm, H - 6.5*mm,
+            "%s  to  %s" % (start_dt.strftime("%d/%m/%Y %H:%M"),
+                            end_dt.strftime("%d/%m/%Y %H:%M")),
+        )
+        canvas.setStrokeColor(HexColor("#CBD5E0"))
+        canvas.setLineWidth(0.5)
+        canvas.line(15*mm, 11*mm, W - 15*mm, 11*mm)
+        canvas.setFillColor(HexColor("#718096"))
+        canvas.setFont("Helvetica", 7.5)
+        canvas.drawString(15*mm, 6*mm,
+            "Generated: %s" % datetime.now().strftime("%d/%m/%Y %H:%M"))
+        canvas.drawRightString(W - 15*mm, 6*mm, "Page %d" % doc.page)
+        canvas.restoreState()
+
+    doc.build(story, onFirstPage=_page_decor, onLaterPages=_page_decor)
+    buf.seek(0)
+
+    filename = "SCADA_Report_%s_%s.pdf" % (
+        start_dt.strftime("%Y%m%d_%H%M"),
+        end_dt.strftime("%Y%m%d_%H%M"),
+    )
+    return dcc.send_bytes(buf.getvalue(), filename=filename)
+
+
+
 # ===========================================================================
 # ── ENTRY POINT ────────────────────────────────────────────────────────────
 # ===========================================================================
 if __name__ == "__main__":
-    print("Starting IQF Unified Dashboard …")
+    print("Starting IQF Unified Dashboard â€¦")
     print("Open  http://127.0.0.1:8050  in your browser.")
     app.run(debug=False, host="0.0.0.0", port=8050)
