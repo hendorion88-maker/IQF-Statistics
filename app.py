@@ -16,7 +16,7 @@ DEPENDENCIES
   pip install dash dash-bootstrap-components plotly pandas openpyxl requests
 """
 
-import os, sys, re, time
+import os, sys, re, time, io
 import requests
 import pandas as pd
 import plotly.graph_objects as go
@@ -38,6 +38,14 @@ else:
 DATA_CSV  = os.path.join(BASE_DIR, "Data_log0.csv")
 ALARM_CSV = os.path.join(BASE_DIR, "Alarm_log0.csv")
 CACHE_XLS = os.path.join(BASE_DIR, "data_cache.xlsx")
+
+# ===========================================================================
+# GOOGLE DRIVE MASTER FILE IDs
+# After running sync_data.py for the first time, paste the printed file IDs here
+# then redeploy to Heroku.  Leave as empty strings to read local CSV files instead.
+# ===========================================================================
+GDRIVE_MASTER_DATA_ID  = "1F-Ti0JPgoQ1MEQogSuJXf9KJQpawPwwa"   # e.g. "1ABCxyz_your_master_data_file_id"
+GDRIVE_MASTER_ALARM_ID = "1phKYEBKwkkhhO3VTsWb5vPsj7g-r3tCD"   # e.g. "1DEFabc_your_master_alarm_file_id"
 
 # ===========================================================================
 # FILLER CONFIG  (edit as needed)
@@ -229,9 +237,24 @@ def compute_metrics(df: pd.DataFrame) -> dict:
 # ── SCADA DATA FUNCTIONS ───────────────────────────────────────────────────
 # ===========================================================================
 
+def _download_from_gdrive(file_id):
+    """Download a file from Google Drive (file must be shared 'Anyone with link')."""
+    url = (
+        f"https://drive.usercontent.google.com/download"
+        f"?id={file_id}&export=download&confirm=t"
+    )
+    r = requests.get(url, timeout=60)
+    r.raise_for_status()
+    return io.BytesIO(r.content)
+
+
 def load_scada_data():
     try:
-        df = pd.read_csv(DATA_CSV, sep=";", encoding="latin-1")
+        if GDRIVE_MASTER_DATA_ID:
+            buf = _download_from_gdrive(GDRIVE_MASTER_DATA_ID)
+            df = pd.read_csv(buf)
+        else:
+            df = pd.read_csv(DATA_CSV, sep=";", encoding="latin-1")
         df["TimeString"] = pd.to_datetime(df["TimeString"], dayfirst=True, errors="coerce")
         df = df.dropna(subset=["TimeString"])
         df["VarValue"] = pd.to_numeric(df["VarValue"], errors="coerce").astype(float)
@@ -245,7 +268,11 @@ def load_scada_data():
 
 def load_alarms():
     try:
-        df = pd.read_csv(ALARM_CSV, sep=";", encoding="latin-1")
+        if GDRIVE_MASTER_ALARM_ID:
+            buf = _download_from_gdrive(GDRIVE_MASTER_ALARM_ID)
+            df = pd.read_csv(buf)
+        else:
+            df = pd.read_csv(ALARM_CSV, sep=";", encoding="latin-1")
         df["TimeString"] = pd.to_datetime(df["TimeString"], dayfirst=True, errors="coerce")
         df = df.dropna(subset=["TimeString"])
         df["MsgText"] = df["MsgText"].astype(str).str.strip()
