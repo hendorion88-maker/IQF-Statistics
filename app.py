@@ -80,7 +80,7 @@ AIR_PROD_LOW          = -30.0
 AIR_PROD_HIGH         = -20.0
 AIR_PROD_STOP         =   -10.0   # temperature at or above this = out of production
 # Evaporator temperature: must stay â‰¤ -37 °C during production; > -37 °C = alarm
-EVAP_ALARM_THRESHOLD  = -35.0
+EVAP_ALARM_THRESHOLD  = -37.0
 # Grace period at start/end of each production cycle excluded from evap alarm counting
 # (ramp-up / ramp-down transients are normal and should not count as alarms)
 EVAP_GRACE_MIN        = 45
