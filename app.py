@@ -387,19 +387,21 @@ def _compute_production_stats(df, start_dt, end_dt):
 
         avg_evap = min_evap = evap_amin = None
         if evap_1m_full is not None:
+            # Full slice for min_evap only
             _idx = pd.date_range(ps, pe, freq="1min")
             evap_slice = evap_1m_full.reindex(_idx).interpolate(method="time", limit=30)
-            _valid = evap_slice.dropna()
-            if not _valid.empty:
-                avg_evap = round(float(_valid.mean()), 2)
-                min_evap = round(float(_valid.min()),  2)
-            # Alarm count excludes first/last EVAP_GRACE_MIN minutes (ramp-up/down)
+            _valid_full = evap_slice.dropna()
+            if not _valid_full.empty:
+                min_evap = round(float(_valid_full.min()), 2)
+            # Core slice (excluding first/last EVAP_GRACE_MIN) for avg_evap and alarm count
             _grace = timedelta(minutes=EVAP_GRACE_MIN)
             _core_s = ps + _grace
             _core_e = pe - _grace
             if _core_s < _core_e:
                 _cidx = pd.date_range(_core_s, _core_e, freq="1min")
                 _core_slice = evap_1m_full.reindex(_cidx).interpolate(method="time", limit=30).dropna()
+                if not _core_slice.empty:
+                    avg_evap = round(float(_core_slice.mean()), 2)
                 evap_amin = int((_core_slice > EVAP_ALARM_THRESHOLD).sum())
             else:
                 evap_amin = 0  # cycle too short to have a core window
@@ -764,6 +766,101 @@ def build_superimposed_chart(df, start_dt, end_dt, production_periods=None):
                 fillcolor="rgba(52,211,153,0.07)",
                 line=dict(width=0), layer="below",
             ))
+
+    # ── Evaporator alarm shading (red bands) ────────────────────────────────
+    # Detect which y-axis evap is on and its data range
+    evap_yaxis_key = None
+    evap_y_min = evap_y_max = None
+    for i, colour, varname, values, _ in traces:
+        if EVAP_TEMP_SUBSTR in varname.lower():
+            evap_yaxis_key = "y" if i == 0 else f"y{i + 1}"
+            v_min = float(values.min())
+            v_max = float(values.max())
+            margin = (v_max - v_min) * 0.1 if v_max != v_min else 1.0
+            evap_y_min = v_min - margin
+            evap_y_max = v_max + margin
+            break
+
+    # Compute contiguous periods where evap > EVAP_ALARM_THRESHOLD
+    evap_alarm_periods = []
+    evap_raw_chart = df[
+        df["VarName"].str.lower().str.contains(EVAP_TEMP_SUBSTR, na=False)
+    ]
+    evap_raw_chart = evap_raw_chart[
+        (evap_raw_chart["TimeString"] >= start_dt) &
+        (evap_raw_chart["TimeString"] <= end_dt)
+    ]
+    if not evap_raw_chart.empty and production_periods:
+        evap_ts = (evap_raw_chart.set_index("TimeString")["VarValue"]
+                   .sort_index()
+                   .resample("1min").mean()
+                   .interpolate(method="time", limit=60))
+        # Build a mask: only within production core windows (grace stripped from each end)
+        grace = timedelta(minutes=EVAP_GRACE_MIN)
+        core_mask = pd.Series(False, index=evap_ts.index)
+        for ps, pe in production_periods:
+            core_start = ps + grace
+            core_end   = pe - grace
+            if core_start < core_end:
+                core_mask[core_start:core_end] = True
+        above = (evap_ts > EVAP_ALARM_THRESHOLD) & core_mask
+        in_alarm = False
+        seg_start = None
+        for ts, val in above.items():
+            if val and not in_alarm:
+                seg_start = ts
+                in_alarm = True
+            elif not val and in_alarm:
+                evap_alarm_periods.append((seg_start, ts))
+                in_alarm = False
+        if in_alarm and seg_start is not None:
+            evap_alarm_periods.append((seg_start, evap_ts.index[-1]))
+
+    # Add red filled Scatter traces anchored to evap y-axis (not paper),
+    # spanning from EVAP_ALARM_THRESHOLD up to the evap axis top.
+    # A second dense trace provides per-minute hover info in unified mode.
+    yax = evap_yaxis_key if evap_yaxis_key else "y"
+    fill_bottom = EVAP_ALARM_THRESHOLD
+    fill_top    = evap_y_max if evap_y_max is not None else EVAP_ALARM_THRESHOLD + 5.0
+    alarm_traces = []
+    for as_, ae in evap_alarm_periods:
+        dur_sec = int((ae - as_).total_seconds())
+        dur_str = (f"{dur_sec // 3600}h {(dur_sec % 3600) // 60}m"
+                   if dur_sec >= 3600 else f"{dur_sec // 60} min")
+        hover_text = (
+            f"<b>Evap alarm period</b><br>"
+            f"From: {as_.strftime('%H:%M  %d/%m')}<br>"
+            f"To:   {ae.strftime('%H:%M  %d/%m')}<br>"
+            f"Duration: {dur_str}"
+        )
+        # Visible filled rectangle (anchored to evap y-axis only)
+        alarm_traces.append(go.Scatter(
+            x=[as_, ae, ae, as_, as_],
+            y=[fill_bottom, fill_bottom, fill_top, fill_top, fill_bottom],
+            mode="none",
+            fill="toself",
+            fillcolor="rgba(239,68,68,0.20)",
+            line=dict(color="rgba(239,68,68,0.55)", width=1),
+            yaxis=yax,
+            hoverinfo="skip",
+            showlegend=False,
+            name="",
+        ))
+        # Dense 1-min hover series — picked up by hovermode="x unified"
+        t_pts = pd.date_range(as_, ae, freq="1min")
+        mid_y = (fill_bottom + fill_top) / 2
+        alarm_traces.append(go.Scatter(
+            x=t_pts,
+            y=[mid_y] * len(t_pts),
+            mode="none",
+            yaxis=yax,
+            hovertemplate=hover_text + "<extra></extra>",
+            showlegend=False,
+            name="",
+        ))
+    if alarm_traces:
+        fig.add_traces(alarm_traces)
+
     layout_updates["shapes"] = shapes
 
     # ── Threshold reference lines on the correct y-axes ────────────────────
@@ -1391,7 +1488,7 @@ def serve_layout():
                 ]),
 
                 # ── Alarm Analysis ────────────────────────────────────────
-                dbc.Tab(label="⚠ Alarm Analysis", tab_id="scada-alarm", children=[
+                dbc.Tab(label=" Alarm Analysis", tab_id="scada-alarm", children=[
                     dbc.Row(id="alarm-kpis", className="mb-3 mt-2"),
                     dbc.Spinner(dcc.Graph(id="chart-alarm-timeline",
                                          config={"scrollZoom": True},
@@ -1434,17 +1531,17 @@ def serve_layout():
                 dcc.Store(id="filler-store"),
 
                 # KPI cards ──────────────────────────────────────────────────
-                html.Div("Overall Summary", className="filler-section-label"),
+                html.Div("Daily Counter Summary", className="filler-section-label"),
                 html.Div(id="filler-kpis-weight", className="filler-kpi-grid",
                          style={"display": "grid", "gridTemplateColumns": "repeat(4, 1fr)", "gap": "12px"}),
-                html.Div("Counter Summary", className="filler-section-label"),
+                html.Div("Total Counter Summary", className="filler-section-label"),
                 html.Div(id="filler-kpis-counter", className="filler-kpi-grid",
                          style={"display": "grid", "gridTemplateColumns": "repeat(4, 1fr)", "gap": "12px", "marginBottom": "20px"}),
 
                 # Sub-tabs ───────────────────────────────────────────────────
                 dbc.Tabs(id="filler-subtabs", active_tab="filler-weight", children=[
 
-                    dbc.Tab(label="⚖ Weight Analysis", tab_id="filler-weight", children=[
+                    dbc.Tab(label="⚖ DailyWeight Analysis", tab_id="filler-weight", children=[
                         dbc.Row([
                             dbc.Col(dbc.Spinner(dcc.Graph(id="fig-boxes"), color="success"), md=6),
                             dbc.Col(dbc.Spinner(dcc.Graph(id="fig-avg-weight"), color="success"), md=6),
@@ -1464,7 +1561,7 @@ def serve_layout():
                         ], className="mt-2 mb-3 shadow-sm"),
                     ]),
 
-                    dbc.Tab(label="🎛 Counter Analysis", tab_id="filler-counter", children=[
+                    dbc.Tab(label="🎛 Total Counter Analysis", tab_id="filler-counter", children=[
                         dbc.Row([
                             dbc.Col(dbc.Spinner(dcc.Graph(id="fig-counter-total"), color="primary"), md=6),
                             dbc.Col(dbc.Spinner(dcc.Graph(id="fig-tc-increment"), color="secondary"), md=6),
@@ -1527,7 +1624,7 @@ def refresh_filler(n_clicks):
         df = load_filler_excel(CACHE_XLS)
         m  = compute_metrics(df)
     except Exception as exc:
-        err = f"⚠  {exc}"
+        err = f"  {exc}"
         return (None, err,
                 [], [],
                 *[empty_fig]*10,
@@ -1731,11 +1828,11 @@ def _switch_shift_tab(n_clicks_list):
 def update_data_chart(n_clicks, start_date, end_date, sh, sm, eh, em):
     df = load_scada_data()
     if df.empty:
-        return go.Figure(), "⚠  Data_log0.csv not found or empty.", [], []
+        return go.Figure(), "  Data_log0.csv not found or empty.", [], []
     start_dt = _parse_dt(start_date, sh, sm)
     end_dt   = _parse_dt(end_date,   eh, em)
     if end_dt <= start_dt:
-        return go.Figure(), "⚠  End time must be after start time.", [], []
+        return go.Figure(), "  End time must be after start time.", [], []
 
     # ── Production statistics ────────────────────────────────────────────
     stats = _compute_production_stats(df, start_dt, end_dt)
@@ -1764,7 +1861,7 @@ def update_data_chart(n_clicks, start_date, end_date, sh, sm, eh, em):
         _kpi_card_dark(
             "Evap Temp Alarm Events",
             str(stats["evap_alarm_events"]),
-            f"Evap temp > -35 °C during production  ·  {stats['evap_alarm_minutes']} min",
+            f"Evap temp > -37 °C during production  ·  {stats['evap_alarm_minutes']} min",
             evap_status,
         ),
         _kpi_card_dark(
@@ -1807,13 +1904,13 @@ def update_alarm_charts(n_clicks, start_date, end_date, sh, sm, eh, em):
     alarm_df = load_alarms()
     if alarm_df.empty:
         empty = go.Figure()
-        return empty, empty, empty, [], html.Div("⚠  Alarm_log0.csv not found or empty."), ""
+        return empty, empty, empty, [], html.Div("  Alarm_log0.csv not found or empty."), ""
 
     start_dt = _parse_dt(start_date, sh, sm)
     end_dt   = _parse_dt(end_date,   eh, em)
     if end_dt <= start_dt:
         empty = go.Figure()
-        return empty, empty, empty, [], html.Div("⚠  End must be after start."), ""
+        return empty, empty, empty, [], html.Div("  End must be after start."), ""
 
     period_df = alarm_df[
         (alarm_df["TimeString"] >= start_dt) &
@@ -2004,7 +2101,7 @@ def export_scada_report(n_clicks, start_date, end_date, sh, sm, eh, em):
             ["Production Time",         "%s h" % stats["production_hours"], "%.1f%% of period" % pct],
             ["Production Cycles",       str(len(stats["cycles"])),          "Distinct freeze cycles"],
             ["Air Temp Alarm Events",   str(n_air),  "Air > -20 degC  |  %s min total" % stats["air_alarm_minutes"]],
-            ["Evap Temp Alarm Events",  str(n_evp),  "Evap > -35 degC during production  |  %s min" % stats["evap_alarm_minutes"]],
+            ["Evap Temp Alarm Events",  str(n_evp),  "Evap > -37 degC during production  |  %s min" % stats["evap_alarm_minutes"]],
         ]
         kpi_extra = [
             ("ALIGN",     (0, 0), (0, -1), "LEFT"),
