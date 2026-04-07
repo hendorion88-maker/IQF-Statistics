@@ -1258,22 +1258,20 @@ def _build_shift_panel(s):
 # ── PRELOAD FOR DEFAULT DATES ──────────────────────────────────────────────
 # ===========================================================================
 
-_scada_init = load_scada_data()
-_alarm_init = load_alarms()
-
 def _date_range(df):
     if df.empty or "TimeString" not in df.columns:
         return datetime(2025, 12, 1), datetime.now()
     return df["TimeString"].min(), df["TimeString"].max()
 
-scada_min, scada_max = _date_range(_scada_init)
-alarm_min, alarm_max = _date_range(_alarm_init)
-overall_min = min(scada_min, alarm_min)
-overall_max = max(scada_max, alarm_max)
-
-# Default picker range: last 2 days only (reduces memory on startup)
-_default_end   = overall_max
-_default_start = max(overall_min, _default_end - timedelta(days=2))
+def _compute_default_dates():
+    """Reloads data ranges fresh each call — so page refresh picks up new data."""
+    scada_min, scada_max = _date_range(load_scada_data())
+    alarm_min, alarm_max = _date_range(load_alarms())
+    overall_max = max(scada_max, alarm_max)
+    overall_min = min(scada_min, alarm_min)
+    default_end   = overall_max
+    default_start = max(overall_min, default_end - timedelta(days=2))
+    return default_start, default_end
 
 
 # ===========================================================================
@@ -1331,10 +1329,12 @@ app = dash.Dash(
 server = app.server   # expose Flask server for gunicorn / production deployment
 
 # ---------------------------------------------------------------------------
-# Layout
+# Layout (function so defaults refresh on every browser page load)
 # ---------------------------------------------------------------------------
 
-app.layout = dbc.Container(fluid=True, children=[
+def serve_layout():
+    default_start, default_end = _compute_default_dates()
+    return dbc.Container(fluid=True, children=[
 
     # ── Header ──────────────────────────────────────────────────────────────
     dbc.Row(dbc.Col(html.Div([
@@ -1357,7 +1357,7 @@ app.layout = dbc.Container(fluid=True, children=[
         dbc.Tab(label="📡 SCADA Analysis", tab_id="tab-scada", children=[
 
             # Shared time picker (used by both SCADA sub-tabs)
-            _time_picker("shared", default_start=_default_start, default_end=_default_end),
+            _time_picker("shared", default_start=default_start, default_end=default_end),
 
             # ── Single load button for both sub-tabs ─────────────────────
             dcc.Download(id="download-scada-report"),
@@ -1488,7 +1488,9 @@ app.layout = dbc.Container(fluid=True, children=[
             ]),   # /filler-dark-wrap
         ]),
     ]),
-])
+    ])
+
+app.layout = serve_layout
 
 
 # ===========================================================================
