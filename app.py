@@ -1271,6 +1271,10 @@ alarm_min, alarm_max = _date_range(_alarm_init)
 overall_min = min(scada_min, alarm_min)
 overall_max = max(scada_max, alarm_max)
 
+# Default picker range: last 2 days only (reduces memory on startup)
+_default_end   = overall_max
+_default_start = max(overall_min, _default_end - timedelta(days=2))
+
 
 # ===========================================================================
 # ── LAYOUT HELPERS ─────────────────────────────────────────────────────────
@@ -1353,7 +1357,7 @@ app.layout = dbc.Container(fluid=True, children=[
         dbc.Tab(label="📡 SCADA Analysis", tab_id="tab-scada", children=[
 
             # Shared time picker (used by both SCADA sub-tabs)
-            _time_picker("shared", default_start=scada_min, default_end=scada_max),
+            _time_picker("shared", default_start=_default_start, default_end=_default_end),
 
             # ── Single load button for both sub-tabs ─────────────────────
             dcc.Download(id="download-scada-report"),
