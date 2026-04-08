@@ -1995,6 +1995,41 @@ def export_scada_report(n_clicks, start_date, end_date, sh, sm, eh, em):
     alarm_df = load_alarms()
     stats    = _compute_production_stats(df, start_dt, end_dt) if not df.empty else {}
 
+    # ── Load filler data for the Filler Production Summary column ───────────
+    _pdf_filler_shifts = []
+    try:
+        _fdf = load_filler_excel(CACHE_XLS)
+        _pdf_filler_shifts = compute_metrics(_fdf)["shifts"]
+    except Exception:
+        pass
+    # Apply same date-correction as _build_cycles_table so matching is consistent
+    if stats and stats.get("cycles") and _pdf_filler_shifts:
+        _ref_start = min(c["start"] for c in stats["cycles"])
+        _ref_end   = max(c["end"]   for c in stats["cycles"])
+        _margin    = timedelta(days=60)
+        _corrected = []
+        for _s in _pdf_filler_shifts:
+            _s = dict(_s)
+            _d = _s.get("date_dt")
+            if _d is None:
+                try:
+                    _raw = re.sub(r"[^\d/\-]", "", str(_s.get("date", "")))
+                    _parts = re.split(r"[/\-]", _raw)
+                    if len(_parts) == 3:
+                        _d = datetime(int(str(_parts[2])[:4]), int(_parts[1]), int(_parts[0]))
+                except Exception:
+                    pass
+            if _d is not None and not (_ref_start - _margin <= _d <= _ref_end + _margin):
+                try:
+                    _sw = _d.replace(month=_d.day, day=_d.month)
+                    if _ref_start - _margin <= _sw <= _ref_end + _margin:
+                        _d = _sw
+                except ValueError:
+                    pass
+            _s["date_dt"] = _d
+            _corrected.append(_s)
+        _pdf_filler_shifts = _corrected
+
     # Colors - light theme
     C_PAGE   = white
     C_HDR    = HexColor("#1E3A5F")
@@ -2120,9 +2155,61 @@ def export_scada_report(n_clicks, start_date, end_date, sh, sm, eh, em):
         story.append(Spacer(1, 4*mm))
         story.append(Paragraph("Production Cycles", S_SEC))
         story.append(Spacer(1, 2*mm))
-        cyc_rows  = [["#", "Start", "End", "Duration", "Shift",
-                       "Avg Air (degC)", "Avg Evap (degC)", "Evap Alarm (min)"]]
-        cyc_extra = [("ALIGN", (0, 0), (-1, -1), "CENTER")]
+
+        S_CELL  = _ps("cell",  fontSize=7, textColor=C_TXT,   leading=10)
+        S_CMUTE = _ps("cmute", fontSize=7, textColor=C_MUTED, leading=10)
+
+        def _filler_cell(cycle):
+            """Return a Paragraph with filler summary for one production cycle."""
+            if not _pdf_filler_shifts:
+                return Paragraph("No filler data loaded", S_CMUTE)
+            matched = []
+            for _s in _pdf_filler_shifts:
+                if _s.get("date_dt") is None:
+                    continue
+                _d0 = _s["date_dt"]
+                if _s["type"].strip().lower() == "night":
+                    _sw_s = _d0 - timedelta(hours=4)
+                    _sw_e = _d0 + timedelta(hours=8)
+                else:
+                    _sw_s = _d0 + timedelta(hours=8)
+                    _sw_e = _d0 + timedelta(hours=20)
+                if cycle["start"] < _sw_e and cycle["end"] > _sw_s:
+                    matched.append(_s)
+            if not matched:
+                return Paragraph("No matching shift data for this cycle's dates", S_CMUTE)
+            total_boxes  = sum(_s["total_boxes"]  for _s in matched)
+            total_weight = sum(_s["total_weight"] for _s in matched)
+            total_over   = sum(_s["total_over_g"] for _s in matched)
+            cycle_hours  = cycle["duration_min"] / 60 if cycle["duration_min"] > 0 else 1
+            prod_rate    = total_weight / cycle_hours
+            shift_labels = ", ".join(
+                "S#%d (%s %s)" % (_s["shift"], _s["date"],
+                                   "Night" if _s["type"].strip().lower() == "night" else "Day")
+                for _s in matched
+            )
+            over_hex = "#1D6940" if total_over >= 0 else "#9B2335"
+            txt = (
+                "<b>%s</b><br/>"
+                "Boxes: %s  |  Weight: %s Kg<br/>"
+                "Rate: %.1f Kg/h  |  Overfill: "
+                "<font color='%s'><b>%+.2f Kg</b></font>"
+            ) % (
+                shift_labels,
+                f"{total_boxes:,.0f}", f"{total_weight:,.0f}",
+                prod_rate,
+                over_hex, total_over,
+            )
+            return Paragraph(txt, S_CELL)
+
+        cyc_rows  = [["#", "Start", "End", "Duration",
+                       "Avg Air (degC)", "Avg Evap (degC)", "Evap Alarm (min)",
+                       "Filler Production Summary"]]
+        cyc_extra = [
+            ("ALIGN",  (0, 0), (-1, -1), "CENTER"),
+            ("ALIGN",  (7, 0), (7, -1),  "LEFT"),
+            ("VALIGN", (7, 1), (7, -1),  "TOP"),
+        ]
         for i, c in enumerate(cycles, 1):
             av_air  = ("%.1f" % c["avg_air"])  if c.get("avg_air")  is not None else "-"
             av_evap = ("%.1f" % c["avg_evap"]) if c.get("avg_evap") is not None else "-"
@@ -2131,21 +2218,21 @@ def export_scada_report(n_clicks, start_date, end_date, sh, sm, eh, em):
                 c["start"].strftime("%d/%m %H:%M"),
                 c["end"].strftime("%d/%m %H:%M"),
                 "%dh %02dm" % (c["duration_min"] // 60, c["duration_min"] % 60),
-                c["shift_type"].capitalize(),
                 av_air, av_evap,
                 str(c.get("evap_alarm_min", 0)),
+                _filler_cell(c),
             ])
             air_v = c.get("avg_air")
             if air_v is not None:
-                cyc_extra.append(("TEXTCOLOR", (5, i), (5, i),
+                cyc_extra.append(("TEXTCOLOR", (4, i), (4, i),
                     C_GREEN if air_v <= -20 else (C_AMBER if air_v < -10 else C_RED)))
             evp_v = c.get("avg_evap")
             if evp_v is not None:
-                cyc_extra.append(("TEXTCOLOR", (6, i), (6, i),
+                cyc_extra.append(("TEXTCOLOR", (5, i), (5, i),
                     C_GREEN if evp_v <= -35 else C_RED))
             if c.get("evap_alarm_min", 0) > 0:
-                cyc_extra.append(("TEXTCOLOR", (7, i), (7, i), C_RED))
-        col_w = [PW*f for f in [0.06, 0.12, 0.12, 0.10, 0.09, 0.14, 0.14, 0.13]]
+                cyc_extra.append(("TEXTCOLOR", (6, i), (6, i), C_RED))
+        col_w = [PW*f for f in [0.05, 0.10, 0.10, 0.08, 0.11, 0.11, 0.10, 0.35]]
         story.append(_tbl(cyc_rows, col_w, cyc_extra))
 
     # =========================================================================
