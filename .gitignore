@@ -1,0 +1,18 @@
+__pycache__/
+*.pyc
+*.pyo
+.env
+.venv/
+venv/
+
+# Sensitive credentials — never push to GitHub
+client_secrets.json
+service_account.json
+settings.yaml
+
+# Local SCADA CSV files (large, machine-specific)
+Data_log0.csv
+Alarm_log0.csv
+
+# Local cache
+*.xlsx

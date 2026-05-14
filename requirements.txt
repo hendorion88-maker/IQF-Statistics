@@ -1,0 +1,17 @@
+pandas
+openpyxl
+flask
+requests
+dash-bootstrap-components
+plotly
+gunicorn
+dash
+google-api-python-client
+google-auth
+reportlab
+kaleido==0.2.1
+psycopg2-binary
+sqlalchemy
+arabic-reshaper
+python-bidi
+pytz
