@@ -16,8 +16,9 @@ DEPENDENCIES
   pip install dash dash-bootstrap-components plotly pandas openpyxl requests
 """
 
-import os, sys, re, time, io
+import os, sys, re, time, io, json
 import requests
+import pytz
 import pandas as pd
 import plotly.graph_objects as go
 import plotly.express as px
@@ -26,6 +27,16 @@ from datetime import datetime, timedelta
 import dash
 from dash import dcc, html, Input, Output, State, dash_table, ALL
 import dash_bootstrap_components as dbc
+try:
+    import psycopg2
+    import psycopg2.extras
+    from sqlalchemy import create_engine, text as sa_text
+    _PSYCOPG2_AVAILABLE = True
+except ImportError:
+    _PSYCOPG2_AVAILABLE = False
+
+# Egypt local timezone (Africa/Cairo) — DB stores timestamps in UTC
+EGYPT_TZ = pytz.timezone("Africa/Cairo")
 
 # ===========================================================================
 # PATHS
@@ -84,6 +95,141 @@ EVAP_ALARM_THRESHOLD  = -37.0
 # Grace period at start/end of each production cycle excluded from evap alarm counting
 # (ramp-up / ramp-down transients are normal and should not count as alarms)
 EVAP_GRACE_MIN        = 45
+
+# ===========================================================================
+# ── MAINTENANCE DATABASE CONFIG ────────────────────────────────────────────
+# ===========================================================================
+# Set the REPAIR_DATABASE_URL environment variable in production (e.g. Render).
+# When running locally the fallback connects to the local repair database.
+REPAIR_DATABASE_URL = os.environ.get(
+    "REPAIR_DATABASE_URL",
+    "postgresql://postgres:ho2025@localhost:5432/repair",
+)
+
+# JSON archive produced by sync_maintenance.py (used on Render as DB fallback)
+MAINT_ARCHIVE_JSON = os.path.join(BASE_DIR, "iqf_maintenance_archive.json")
+
+# Columns to pull from repair_requests for the IQF maintenance view
+# machine_receipt_time       = repair start
+# production_machine_receipt_time = repair end (machine returned to production)
+_MAINT_COLS = [
+    "id", "title", "description", "machine_name", "status", "impact",
+    "shift", "failure_cause",
+    "failure_start_time", "machine_receipt_time",
+    "technician_name", "engineer_name", "depart",
+    "repair_time_minutes", "maintenance_notes", "repair_method",
+    "spare_parts", "production_machine_receipt_time",
+]
+
+
+# Timestamp columns in repair_requests that are stored as UTC
+_MAINT_TS_COLS = ["failure_start_time", "machine_receipt_time",
+                  "production_machine_receipt_time"]
+
+
+def _to_utc(naive_egypt_dt: datetime) -> datetime:
+    """Convert a naive Egypt-local datetime to a naive UTC datetime for DB queries."""
+    return EGYPT_TZ.localize(naive_egypt_dt).astimezone(pytz.utc).replace(tzinfo=None)
+
+
+def _df_utc_to_egypt(df: pd.DataFrame) -> pd.DataFrame:
+    """Convert all UTC timestamp columns in the DataFrame to Egypt local time (naive)."""
+    for col in _MAINT_TS_COLS:
+        if col in df.columns:
+            df[col] = (
+                pd.to_datetime(df[col], utc=True, errors="coerce")
+                .dt.tz_convert(EGYPT_TZ)
+                .dt.tz_localize(None)          # drop tzinfo so display code is unchanged
+            )
+    return df
+
+
+def _load_maintenance_from_json(start_dt: datetime, end_dt: datetime) -> pd.DataFrame:
+    """
+    Fallback reader: load IQF maintenance records from the JSON archive
+    (iqf_maintenance_archive.json) produced by sync_maintenance.py.
+    Timestamps in the JSON are stored as Egypt local ISO strings.
+    """
+    if not os.path.exists(MAINT_ARCHIVE_JSON):
+        return pd.DataFrame()
+
+    with open(MAINT_ARCHIVE_JSON, "r", encoding="utf-8") as _f:
+        payload = json.load(_f)
+
+    records = payload.get("records", [])
+    if not records:
+        return pd.DataFrame()
+
+    df = pd.DataFrame(records)
+
+    # Parse timestamp columns (Egypt local ISO strings → datetime)
+    for col in _MAINT_TS_COLS:
+        if col in df.columns:
+            df[col] = pd.to_datetime(df[col], errors="coerce")
+
+    # Filter by date range
+    mask_col = "failure_start_time"
+    if mask_col in df.columns:
+        mask = (
+            df[mask_col].notna()
+            & (df[mask_col] >= start_dt)
+            & (df[mask_col] <= end_dt)
+        )
+        df = df[mask].reset_index(drop=True)
+
+    return df
+
+
+def fetch_maintenance_requests(start_dt: datetime, end_dt: datetime) -> pd.DataFrame:
+    """
+    Query repair_requests for IQF production line in [start_dt, end_dt].
+    start_dt / end_dt are Egypt local (naive). They are converted to UTC
+    before the DB query, and the returned timestamps are converted back to
+    Egypt local time so all display code sees consistent local times.
+
+    If the DB is unreachable (e.g. running on Render), falls back to
+    iqf_maintenance_archive.json produced by sync_maintenance.py.
+    Returns an empty DataFrame on any error so the UI degrades gracefully.
+    """
+    if not _PSYCOPG2_AVAILABLE:
+        # No psycopg2 — try JSON archive directly
+        try:
+            return _load_maintenance_from_json(start_dt, end_dt), None
+        except Exception:
+            return pd.DataFrame(), "psycopg2 not installed — run: pip install psycopg2-binary"
+
+    # Convert filter bounds from Egypt local → UTC for the DB comparison
+    start_utc = _to_utc(start_dt)
+    end_utc   = _to_utc(end_dt)
+
+    cols_sql = ", ".join(_MAINT_COLS)
+    query = f"""
+        SELECT {cols_sql}
+        FROM   public.repair_requests
+        WHERE  production_line = 'IQF'
+          AND  COALESCE(failure_start_time, created_at) >= :start
+          AND  COALESCE(failure_start_time, created_at) <= :end
+        ORDER BY COALESCE(failure_start_time, created_at) DESC;
+    """
+    try:
+        engine = create_engine(REPAIR_DATABASE_URL, connect_args={"connect_timeout": 10})
+        with engine.connect() as conn:
+            df = pd.read_sql_query(
+                sa_text(query),
+                conn,
+                params={"start": start_utc, "end": end_utc},
+            )
+        # Convert UTC timestamps → Egypt local time for display
+        df = _df_utc_to_egypt(df)
+        return df, None
+    except Exception as exc:
+        # DB unreachable → fall back to JSON archive (Render deployment)
+        try:
+            df = _load_maintenance_from_json(start_dt, end_dt)
+            return df, None
+        except Exception:
+            return pd.DataFrame(), str(exc)
+
 
 # ===========================================================================
 # ── FILLER DATA FUNCTIONS ──────────────────────────────────────────────────
@@ -432,7 +578,7 @@ def _compute_production_stats(df, start_dt, end_dt):
     )
 
 
-def _build_cycles_table(cycles):
+def _build_cycles_table(cycles, maint_requests=None):
     """
     Build a dark HTML table summarising each detected production cycle and
     cross-reference it against filler shift data (if cache is available).
@@ -516,25 +662,108 @@ def _build_cycles_table(cycles):
 
     _TH = {"background": "#1e2333", "color": "#7b82a0", "fontSize": "10px",
            "padding": "6px 10px", "fontWeight": "600", "textTransform": "uppercase",
-           "letterSpacing": "0.05em", "borderBottom": "1px solid rgba(255,255,255,0.08)"}
+           "letterSpacing": "0.05em", "borderBottom": "1px solid rgba(255,255,255,0.08)",
+           "whiteSpace": "nowrap"}
     _TD = {"fontSize": "12px", "padding": "8px 10px", "color": "#e8eaf0",
            "borderBottom": "1px solid rgba(255,255,255,0.04)"}
     _TD_MONO = {**_TD, "fontFamily": "monospace", "fontSize": "11px"}
 
     # SCADA header row
     thead = html.Thead(html.Tr([
-        html.Th("#",               style=_TH),
-        html.Th("Start",           style=_TH),
-        html.Th("End",             style=_TH),
-        html.Th("Duration",        style=_TH),
-        html.Th("Avg Air Temp",    style=_TH),
-        html.Th("Avg Evap Temp",   style=_TH),
-        html.Th("Evap Alarm",      style=_TH),
+        html.Th("#",               style={**_TH, "minWidth": "36px"}),
+        html.Th("Start",           style={**_TH, "minWidth": "130px"}),
+        html.Th("End",             style={**_TH, "minWidth": "130px"}),
+        html.Th("Duration",        style={**_TH, "minWidth": "80px"}),
+        html.Th("Avg Air (°C)",    style={**_TH, "minWidth": "90px"}),
+        html.Th("Avg Evap (°C)",   style={**_TH, "minWidth": "90px"}),
+        html.Th("Evap Alarm (min)",style={**_TH, "minWidth": "110px"}),
+        html.Th("Maintenance Events", style={**_TH, "minWidth": "320px"}),
         html.Th("Filler Production Summary", style={**_TH, "minWidth": "480px"}),
     ]))
 
     body_rows = []
     for c in cycles:
+        # ── Match maintenance requests that OVERLAP this production cycle ────
+        maint_matched = []
+        if maint_requests is not None and not maint_requests.empty:
+            for _, mr in maint_requests.iterrows():
+                r_start = pd.Timestamp(mr.get("failure_start_time")) if pd.notna(mr.get("failure_start_time")) else None
+                r_end   = pd.Timestamp(mr.get("production_machine_receipt_time")) if pd.notna(mr.get("production_machine_receipt_time")) else None
+                if r_start is None:
+                    continue
+                # Only include events where the failure START falls within the cycle window
+                if c["start"] <= r_start <= c["end"]:
+                    maint_matched.append(mr)
+
+        _MTC = {"no_impact": "#34D399", "partial_stop": "#FBBF24", "downgraded": "#F97316", "full_stop": "#EF4444"}
+        _MTL = {"no_impact": "No Impact", "partial_stop": "Partial Stop", "downgraded": "Downgraded", "full_stop": "Full Stop"}
+        if maint_matched:
+            _MSTH = {"fontSize": "9px", "color": "#7b82a0", "textTransform": "uppercase",
+                     "padding": "3px 6px", "fontWeight": "600",
+                     "borderBottom": "1px solid rgba(255,255,255,0.06)"}
+            _MSTD = {"fontSize": "11px", "padding": "4px 6px", "color": "#e8eaf0",
+                     "whiteSpace": "nowrap", "verticalAlign": "top"}
+            maint_rows = []
+            for mr in maint_matched:
+                imp_key = str(mr.get("impact") or "").lower()
+                imp_color = _MTC.get(imp_key, "#9CA3AF")
+                imp_label = _MTL.get(imp_key, imp_key.replace("_", " ").title())
+                dt_val = str(mr.get("repair_time_minutes") or "—")
+                # compute from timestamps if repair_time_minutes is blank
+                if dt_val == "—" or dt_val == "None":
+                    try:
+                        t0 = pd.Timestamp(mr["machine_receipt_time"])
+                        t1 = pd.Timestamp(mr["production_machine_receipt_time"])
+                        if pd.notna(t0) and pd.notna(t1) and t1 > t0:
+                            dt_val = f"{int((t1 - t0).total_seconds() / 60)} min"
+                    except Exception:
+                        pass
+                else:
+                    dt_val = f"{dt_val} min"
+                maint_rows.append(html.Tr([
+                    html.Td(
+                        html.Span(imp_label, style={"color": imp_color, "fontWeight": "700",
+                                                    "fontSize": "10px", "border": f"1px solid {imp_color}",
+                                                    "borderRadius": "3px", "padding": "1px 5px"}),
+                        style=_MSTD,
+                    ),
+                    html.Td(str(mr.get("machine_name") or "—"),
+                            style={**_MSTD, "color": "#818CF8", "fontWeight": "600"}),
+                    html.Td(str(mr.get("title") or "—"), style=_MSTD),
+                    html.Td(str(mr.get("description") or "—"),
+                            style={**_MSTD, "maxWidth": "160px", "overflow": "hidden",
+                                   "textOverflow": "ellipsis", "color": "#9ca3af"}),
+                    html.Td(dt_val,
+                            style={**_MSTD,
+                                   "color": "#FBBF24" if imp_key == "partial_stop" else
+                                            "#F97316" if imp_key == "downgraded" else
+                                            "#EF4444" if imp_key == "full_stop" else "#34D399",
+                                   "fontWeight": "700"}),
+                ]))
+            maint_cell_content = html.Div([
+                html.Table(
+                    [
+                        html.Thead(html.Tr([
+                            html.Th("Impact",      style=_MSTH),
+                            html.Th("Machine",     style=_MSTH),
+                            html.Th("Title",       style=_MSTH),
+                            html.Th("Description", style=_MSTH),
+                            html.Th("Downtime",    style=_MSTH),
+                        ])),
+                        html.Tbody(maint_rows),
+                    ],
+                    style={"borderCollapse": "collapse", "width": "100%",
+                           "background": "rgba(255,255,255,0.02)",
+                           "border": "1px solid rgba(255,255,255,0.06)",
+                           "borderRadius": "6px"},
+                )
+            ])
+        else:
+            maint_cell_content = html.Span(
+                "No maintenance requests in this cycle",
+                style={"color": "#7b82a0", "fontSize": "11px", "fontStyle": "italic"},
+            )
+
         # ── Match filler shifts that OVERLAP this production cycle ───────────
         # Night shift dated DD/MM: 20:00 prev-day → 08:00 that day
         # Day/Light shift dated DD/MM: 08:00 → 20:00 that day
@@ -628,6 +857,7 @@ def _build_cycles_table(cycles):
             _air_td(c["avg_air"]),
             _evap_td(c["avg_evap"]),
             html.Td(evap_alarm_badge, style=_TD),
+            html.Td(maint_cell_content, style={**_TD, "verticalAlign": "top"}),
             html.Td(filler_cell_content, style={**_TD, "verticalAlign": "top"}),
         ], style={"background": "rgba(99,102,241,0.03)" if c["cycle"] % 2 == 0 else "transparent"}))
 
@@ -653,7 +883,7 @@ def _build_cycles_table(cycles):
 # ── SCADA CHART BUILDERS ───────────────────────────────────────────────────
 # ===========================================================================
 
-def build_superimposed_chart(df, start_dt, end_dt, production_periods=None):
+def build_superimposed_chart(df, start_dt, end_dt, production_periods=None, maint_requests=None):
     variables = sorted(df["VarName"].dropna().unique().tolist())
     n = len(variables)
     if n == 0:
@@ -860,6 +1090,43 @@ def build_superimposed_chart(df, start_dt, end_dt, production_periods=None):
         ))
     if alarm_traces:
         fig.add_traces(alarm_traces)
+
+    # ── Shading for maintenance events by impact ────────────────────────────
+    _MAINT_SHADE = {
+        "full_stop":    ("rgba(239,68,68,0.15)",   "rgba(239,68,68,0.55)",   "⛔"),
+        "partial_stop": ("rgba(251,191,36,0.13)",  "rgba(251,191,36,0.50)",  "⚠"),
+        "downgraded":   ("rgba(249,115,22,0.12)",  "rgba(249,115,22,0.45)",  "↓"),
+    }
+    if maint_requests is not None and not maint_requests.empty:
+        shaded = maint_requests[
+            maint_requests["impact"].astype(str).str.lower().isin(_MAINT_SHADE)
+        ]
+        for _, mr in shaded.iterrows():
+            imp_key   = str(mr.get("impact") or "").lower()
+            fill_col, line_col, icon = _MAINT_SHADE[imp_key]
+            fs_start = mr.get("failure_start_time")
+            fs_end   = mr.get("production_machine_receipt_time")
+            if fs_end is None or pd.isna(fs_end):
+                fs_end = mr.get("machine_receipt_time")
+            if fs_start is None or pd.isna(fs_start):
+                continue
+            if fs_end is None or pd.isna(fs_end):
+                fs_end = fs_start
+            label_txt   = str(mr.get("title") or imp_key.replace("_", " ").title())
+            machine_txt = str(mr.get("machine_name") or "")
+            shapes.append(dict(
+                type="rect", xref="x", yref="paper",
+                x0=str(pd.Timestamp(fs_start)), x1=str(pd.Timestamp(fs_end)),
+                y0=0, y1=1,
+                fillcolor=fill_col,
+                line=dict(color=line_col, width=1.2),
+                layer="below",
+                label=dict(
+                    text=f"{icon} {label_txt}" + (f" — {machine_txt}" if machine_txt else ""),
+                    textposition="top center",
+                    font=dict(size=10, color=line_col),
+                ),
+            ))
 
     layout_updates["shapes"] = shapes
 
@@ -1584,6 +1851,69 @@ def serve_layout():
 
             ]),   # /filler-dark-wrap
         ]),
+
+        # ╔══════════════════════════════════════════════════════════════════╗
+        # ║  TAB 3 — Maintenance Requests (IQF)                             ║
+        # ╚══════════════════════════════════════════════════════════════════╝
+        dbc.Tab(label="🔧 Maintenance Requests", tab_id="tab-maintenance", children=[
+            html.Div(style={"background": "#0f1117", "minHeight": "100vh", "padding": "16px"}, children=[
+
+                # ── Date range picker ────────────────────────────────────
+                dbc.Card(dbc.CardBody([
+                    dbc.Row([
+                        dbc.Col(dbc.Label("Period:", className="fw-bold",
+                                          style={"color": "#e8eaf0"}), width="auto"),
+                        dbc.Col(
+                            dbc.InputGroup([
+                                dbc.Input(id="maint-start-date", type="date", size="sm",
+                                          value=str(default_start.date())),
+                                dbc.InputGroupText("→",
+                                    style={"background": "#1e2333", "color": "#7b82a0",
+                                           "border": "1px solid rgba(255,255,255,0.1)"}),
+                                dbc.Input(id="maint-end-date", type="date", size="sm",
+                                          value=str(default_end.date())),
+                            ]), md=4,
+                        ),
+                        dbc.Col(
+                            dbc.Button("🔍 Load Requests", id="btn-maint-load",
+                                       color="warning", size="sm", className="ms-2"),
+                            width="auto",
+                        ),
+                        dbc.Col(
+                            html.Div(id="maint-status",
+                                     style={"color": "#7b82a0", "fontSize": "12px",
+                                            "paddingTop": "6px"}),
+                            width="auto",
+                        ),
+                    ], align="center"),
+                ]), style={"background": "#181c27",
+                            "border": "1px solid rgba(255,255,255,0.07)",
+                            "borderRadius": "8px"}, className="mb-3 mt-2"),
+
+                # ── KPI summary cards ────────────────────────────────────
+                html.Div(id="maint-kpis",
+                         style={"display": "grid",
+                                "gridTemplateColumns": "repeat(4, 1fr)",
+                                "gap": "12px", "marginBottom": "16px"}),
+
+                # ── Charts row ───────────────────────────────────────────
+                dbc.Row([
+                    dbc.Col(dbc.Spinner(dcc.Graph(id="maint-chart-by-machine",
+                                                  style={"minHeight": "300px"}),
+                                        color="warning"), md=6),
+                    dbc.Col(dbc.Spinner(dcc.Graph(id="maint-chart-by-status",
+                                                  style={"minHeight": "300px"}),
+                                        color="warning"), md=3),
+                    dbc.Col(dbc.Spinner(dcc.Graph(id="maint-chart-timeline",
+                                                  style={"minHeight": "300px"}),
+                                        color="warning"), md=3),
+                ], className="mb-3"),
+
+                # ── Requests table ───────────────────────────────────────
+                html.Div(id="maint-table-container"),
+
+            ]),
+        ]),
     ]),
     ])
 
@@ -1837,7 +2167,12 @@ def update_data_chart(n_clicks, start_date, end_date, sh, sm, eh, em):
     # ── Production statistics ────────────────────────────────────────────
     stats = _compute_production_stats(df, start_dt, end_dt)
 
-    fig = build_superimposed_chart(df, start_dt, end_dt, stats["production_periods"])
+    # ── Fetch maintenance requests for the same period ───────────────
+    maint_df, _ = fetch_maintenance_requests(start_dt, end_dt)
+    if maint_df is None or maint_df.empty:
+        maint_df = pd.DataFrame()
+
+    fig = build_superimposed_chart(df, start_dt, end_dt, stats["production_periods"], maint_requests=maint_df)
     n_pts = len(df[(df["TimeString"] >= start_dt) & (df["TimeString"] <= end_dt)])
 
     # ── KPI cards ───────────────────────────────────────────────────────
@@ -1877,7 +2212,7 @@ def update_data_chart(n_clicks, start_date, end_date, sh, sm, eh, em):
         f"Production: {stats['production_hours']} h ({stats['production_pct']:.1f}%)  ·  "
         f"{len(stats['cycles'])} cycle(s) detected"
     )
-    cycles_table = _build_cycles_table(stats["cycles"])
+    cycles_table = _build_cycles_table(stats["cycles"], maint_requests=maint_df)
     return fig, status_msg, prod_kpis, cycles_table
 
 
@@ -1978,15 +2313,52 @@ def export_scada_report(n_clicks, start_date, end_date, sh, sm, eh, em):
         from reportlab.lib.pagesizes import landscape, A4
         from reportlab.lib.units import mm
         from reportlab.lib.styles import ParagraphStyle
+        from reportlab.lib.enums import TA_CENTER
         from reportlab.platypus import (
             SimpleDocTemplate, Paragraph, Spacer,
             Table, TableStyle, Image as RLImage, PageBreak,
         )
         from reportlab.platypus.flowables import HRFlowable
         from reportlab.lib.colors import HexColor, white
+        from reportlab.pdfbase import pdfmetrics
+        from reportlab.pdfbase.ttfonts import TTFont
     except ImportError as exc:
         print("[PDF Export] Missing dependency: %s - run: pip install reportlab kaleido" % exc)
         raise dash.exceptions.PreventUpdate
+
+    # ── Register Arial (supports Arabic/Unicode) ───────────────────────────────
+    _FONT_REG  = "Helvetica"
+    _FONT_BOLD = "Helvetica-Bold"
+    try:
+        import arabic_reshaper
+        from bidi.algorithm import get_display as _bidi_display
+        _ARIAL_PATH      = "C:/Windows/Fonts/arial.ttf"
+        _ARIAL_BOLD_PATH = "C:/Windows/Fonts/arialbd.ttf"
+        if "ArialUnicode" not in pdfmetrics.getRegisteredFontNames():
+            pdfmetrics.registerFont(TTFont("ArialUnicode",     _ARIAL_PATH))
+        if "ArialUnicode-Bold" not in pdfmetrics.getRegisteredFontNames():
+            pdfmetrics.registerFont(TTFont("ArialUnicode-Bold", _ARIAL_BOLD_PATH))
+        _FONT_REG  = "ArialUnicode"
+        _FONT_BOLD = "ArialUnicode-Bold"
+        _ARABIC_OK = True
+    except Exception as _ae:
+        print("[PDF] Arabic font setup failed: %s — Arabic text may not render." % _ae)
+        _ARABIC_OK = False
+        def arabic_reshaper_dummy(): pass
+        class _bidi_display_dummy:
+            @staticmethod
+            def __call__(t, **kw): return t
+        _bidi_display = _bidi_display_dummy()
+
+    def _ar(text):
+        """Reshape + bidi-reverse Arabic text so ReportLab renders it correctly."""
+        if not _ARABIC_OK:
+            return str(text)
+        try:
+            reshaped = arabic_reshaper.reshape(str(text))
+            return _bidi_display(reshaped)
+        except Exception:
+            return str(text)
 
     start_dt = _parse_dt(start_date, sh, sm)
     end_dt   = _parse_dt(end_date,   eh, em)
@@ -1994,6 +2366,11 @@ def export_scada_report(n_clicks, start_date, end_date, sh, sm, eh, em):
     df       = load_scada_data()
     alarm_df = load_alarms()
     stats    = _compute_production_stats(df, start_dt, end_dt) if not df.empty else {}
+
+    # ── Fetch maintenance requests for the same period ───────────────────────
+    _pdf_maint_df, _ = fetch_maintenance_requests(start_dt, end_dt)
+    if _pdf_maint_df is None:
+        _pdf_maint_df = pd.DataFrame()
 
     # ── Load filler data for the Filler Production Summary column ───────────
     _pdf_filler_shifts = []
@@ -2058,22 +2435,22 @@ def export_scada_report(n_clicks, start_date, end_date, sh, sm, eh, em):
     def _ps(name, **kw):
         key = (name, tuple(sorted(kw.items())))
         if key not in _ps_cache:
-            defaults = dict(fontName="Helvetica", fontSize=10,
+            defaults = dict(fontName=_FONT_REG, fontSize=10,
                             textColor=C_TXT, leading=14)
             defaults.update(kw)
             _ps_cache[key] = ParagraphStyle(name + str(len(_ps_cache)), **defaults)
         return _ps_cache[key]
 
-    S_TITLE = _ps("title", fontSize=20, fontName="Helvetica-Bold",
+    S_TITLE = _ps("title", fontSize=20, fontName=_FONT_BOLD,
                            textColor=C_HDR, leading=24, spaceAfter=2)
-    S_ACCENT = _ps("accent", fontSize=12, fontName="Helvetica-Bold",
+    S_ACCENT = _ps("accent", fontSize=12, fontName=_FONT_BOLD,
                              textColor=C_ACCENT, leading=16, spaceAfter=4)
     S_META  = _ps("meta",  fontSize=9,  textColor=C_MUTED, leading=13)
-    S_SEC   = _ps("sec",   fontSize=11, fontName="Helvetica-Bold",
+    S_SEC   = _ps("sec",   fontSize=11, fontName=_FONT_BOLD,
                            textColor=C_HDR, leading=15, spaceBefore=6, spaceAfter=3,
                            backColor=HexColor("#DBEAFE"), borderPad=4)
     S_WARN  = _ps("warn",  fontSize=9, textColor=C_AMBER, leading=13,
-                           fontName="Helvetica-Oblique")
+                           fontName=_FONT_REG)
     S_BODY  = _ps("body",  fontSize=9, textColor=C_MUTED, leading=13)
 
     def _tbl(data, col_widths, extra_cmds=None):
@@ -2081,7 +2458,7 @@ def export_scada_report(n_clicks, start_date, end_date, sh, sm, eh, em):
             ("BACKGROUND",    (0, 0), (-1, -1), C_ROW),
             ("TEXTCOLOR",     (0, 0), (-1, -1), C_TXT),
             ("FONTSIZE",      (0, 0), (-1, -1), 8),
-            ("FONTNAME",      (0, 0), (-1, -1), "Helvetica"),
+            ("FONTNAME",      (0, 0), (-1, -1), _FONT_REG),
             ("ALIGN",         (0, 0), (-1, -1), "CENTER"),
             ("VALIGN",        (0, 0), (-1, -1), "MIDDLE"),
             ("TOPPADDING",    (0, 0), (-1, -1), 5),
@@ -2091,7 +2468,7 @@ def export_scada_report(n_clicks, start_date, end_date, sh, sm, eh, em):
             ("GRID",          (0, 0), (-1, -1), 0.4, C_BORDER),
             ("BACKGROUND",    (0, 0), (-1, 0), C_HDR),
             ("TEXTCOLOR",     (0, 0), (-1, 0), C_HDR_T),
-            ("FONTNAME",      (0, 0), (-1, 0), "Helvetica-Bold"),
+            ("FONTNAME",      (0, 0), (-1, 0), _FONT_BOLD),
         ]
         for r in range(1, len(data)):
             cmds.append(("BACKGROUND", (0, r), (-1, r),
@@ -2144,7 +2521,7 @@ def export_scada_report(n_clicks, start_date, end_date, sh, sm, eh, em):
             ("TEXTCOLOR", (1, 2), (1, 2), C_GREEN if pct  >= 50 else C_AMBER),
             ("TEXTCOLOR", (1, 4), (1, 4), C_RED   if n_air > 0 else C_GREEN),
             ("TEXTCOLOR", (1, 5), (1, 5), C_RED   if n_evp > 0 else C_GREEN),
-            ("FONTNAME",  (1, 1), (1, -1), "Helvetica-Bold"),
+            ("FONTNAME",  (1, 1), (1, -1), _FONT_BOLD),
         ]
         story.append(Paragraph("Production KPIs", S_SEC))
         story.append(Spacer(1, 2*mm))
@@ -2158,6 +2535,69 @@ def export_scada_report(n_clicks, start_date, end_date, sh, sm, eh, em):
 
         S_CELL  = _ps("cell",  fontSize=7, textColor=C_TXT,   leading=10)
         S_CMUTE = _ps("cmute", fontSize=7, textColor=C_MUTED, leading=10)
+        S_CHDR  = _ps("chdr",  fontSize=7, fontName=_FONT_BOLD, textColor=C_HDR_T,
+                               leading=9, alignment=TA_CENTER)
+
+        def _H(txt):
+            return Paragraph(txt.replace("\n", "<br/>"), S_CHDR)
+
+        # Impact colors for PDF
+        _PDF_IMP_HEX = {
+            "no_impact":    "#1D6940",
+            "partial_stop": "#92600A",
+            "downgraded":   "#C05621",
+            "full_stop":    "#9B2335",
+        }
+        _PDF_IMP_LBL = {
+            "no_impact":    "No Impact",
+            "partial_stop": "Partial Stop",
+            "downgraded":   "Downgraded",
+            "full_stop":    "Full Stop",
+        }
+
+        def _maint_cell(cycle):
+            """Return a Paragraph with maintenance events overlapping this cycle."""
+            if _pdf_maint_df.empty:
+                return Paragraph("—", S_CMUTE)
+            matched = []
+            for _, mr in _pdf_maint_df.iterrows():
+                r_start = pd.Timestamp(mr.get("failure_start_time")) if pd.notna(mr.get("failure_start_time")) else None
+                r_end   = pd.Timestamp(mr.get("production_machine_receipt_time")) if pd.notna(mr.get("production_machine_receipt_time")) else None
+                if r_start is None:
+                    continue
+                if r_end is None:
+                    r_end = pd.Timestamp.now()
+                if r_start <= cycle["end"] and r_end >= cycle["start"]:
+                    matched.append(mr)
+            if not matched:
+                return Paragraph("No events", S_CMUTE)
+            lines = []
+            for mr in matched:
+                imp_key = str(mr.get("impact") or "").lower()
+                imp_hex = _PDF_IMP_HEX.get(imp_key, "#4A5568")
+                imp_lbl = _PDF_IMP_LBL.get(imp_key, imp_key.replace("_", " ").title())
+                title   = _ar(str(mr.get("title") or "—"))
+                machine = _ar(str(mr.get("machine_name") or ""))
+                desc    = _ar(str(mr.get("description") or ""))
+                dt_val  = str(mr.get("repair_time_minutes") or "")
+                if not dt_val or dt_val == "None":
+                    try:
+                        t0 = pd.Timestamp(mr["machine_receipt_time"])
+                        t1 = pd.Timestamp(mr["production_machine_receipt_time"])
+                        if pd.notna(t0) and pd.notna(t1) and t1 > t0:
+                            dt_val = "%d min" % int((t1 - t0).total_seconds() / 60)
+                    except Exception:
+                        dt_val = "—"
+                else:
+                    dt_val = "%s min" % dt_val
+                lines.append(
+                    "<font color='%s'><b>[%s]</b></font> %s%s%s — %s"
+                    % (imp_hex, imp_lbl, title,
+                       (" / " + machine) if machine else "",
+                       ("<br/><i>" + desc + "</i>") if desc and desc not in ("—", "None") else "",
+                       dt_val)
+                )
+            return Paragraph("<br/>".join(lines), S_CELL)
 
         def _filler_cell(cycle):
             """Return a Paragraph with filler summary for one production cycle."""
@@ -2202,13 +2642,15 @@ def export_scada_report(n_clicks, start_date, end_date, sh, sm, eh, em):
             )
             return Paragraph(txt, S_CELL)
 
-        cyc_rows  = [["#", "Start", "End", "Duration",
-                       "Avg Air (degC)", "Avg Evap (degC)", "Evap Alarm (min)",
-                       "Filler Production Summary"]]
+        cyc_rows  = [[_H("#"), _H("Start"), _H("End"), _H("Duration"),
+                       _H("Avg Air\n(degC)"), _H("Avg Evap\n(degC)"), _H("Evap\nAlarm\n(min)"),
+                       _H("Maintenance\nEvents"), _H("Filler Production\nSummary")]]
         cyc_extra = [
             ("ALIGN",  (0, 0), (-1, -1), "CENTER"),
             ("ALIGN",  (7, 0), (7, -1),  "LEFT"),
             ("VALIGN", (7, 1), (7, -1),  "TOP"),
+            ("ALIGN",  (8, 0), (8, -1),  "LEFT"),
+            ("VALIGN", (8, 1), (8, -1),  "TOP"),
         ]
         for i, c in enumerate(cycles, 1):
             av_air  = ("%.1f" % c["avg_air"])  if c.get("avg_air")  is not None else "-"
@@ -2220,6 +2662,7 @@ def export_scada_report(n_clicks, start_date, end_date, sh, sm, eh, em):
                 "%dh %02dm" % (c["duration_min"] // 60, c["duration_min"] % 60),
                 av_air, av_evap,
                 str(c.get("evap_alarm_min", 0)),
+                _maint_cell(c),
                 _filler_cell(c),
             ])
             air_v = c.get("avg_air")
@@ -2232,7 +2675,7 @@ def export_scada_report(n_clicks, start_date, end_date, sh, sm, eh, em):
                     C_GREEN if evp_v <= -35 else C_RED))
             if c.get("evap_alarm_min", 0) > 0:
                 cyc_extra.append(("TEXTCOLOR", (6, i), (6, i), C_RED))
-        col_w = [PW*f for f in [0.05, 0.10, 0.10, 0.08, 0.11, 0.11, 0.10, 0.35]]
+        col_w = [PW*f for f in [0.04, 0.08, 0.08, 0.07, 0.09, 0.09, 0.08, 0.22, 0.25]]
         story.append(_tbl(cyc_rows, col_w, cyc_extra))
 
     # =========================================================================
@@ -2339,7 +2782,7 @@ def export_scada_report(n_clicks, start_date, end_date, sh, sm, eh, em):
                 alm_rows.append([msg, str(d["count"]), str(d["total_min"]), str(avg)])
                 col = C_RED if d["count"] > 5 else (C_AMBER if d["count"] > 2 else C_GREEN)
                 alm_extra.append(("TEXTCOLOR", (1, i), (1, i), col))
-                alm_extra.append(("FONTNAME",  (1, i), (1, i), "Helvetica-Bold"))
+                alm_extra.append(("FONTNAME",  (1, i), (1, i), _FONT_BOLD))
             story.append(_tbl(alm_rows,
                                [PW*0.55, PW*0.14, PW*0.17, PW*0.14], alm_extra))
         else:
@@ -2353,9 +2796,9 @@ def export_scada_report(n_clicks, start_date, end_date, sh, sm, eh, em):
         canvas.setFillColor(C_HDR)
         canvas.rect(0, H - 10*mm, W, 10*mm, stroke=0, fill=1)
         canvas.setFillColor(white)
-        canvas.setFont("Helvetica-Bold", 9)
+        canvas.setFont(_FONT_BOLD, 9)
         canvas.drawString(15*mm, H - 6.5*mm, "IQF Production Dashboard  -  SCADA Report")
-        canvas.setFont("Helvetica", 9)
+        canvas.setFont(_FONT_REG, 9)
         canvas.drawRightString(
             W - 15*mm, H - 6.5*mm,
             "%s  to  %s" % (start_dt.strftime("%d/%m/%Y %H:%M"),
@@ -2365,7 +2808,7 @@ def export_scada_report(n_clicks, start_date, end_date, sh, sm, eh, em):
         canvas.setLineWidth(0.5)
         canvas.line(15*mm, 11*mm, W - 15*mm, 11*mm)
         canvas.setFillColor(HexColor("#718096"))
-        canvas.setFont("Helvetica", 7.5)
+        canvas.setFont(_FONT_REG, 7.5)
         canvas.drawString(15*mm, 6*mm,
             "Generated: %s" % datetime.now().strftime("%d/%m/%Y %H:%M"))
         canvas.drawRightString(W - 15*mm, 6*mm, "Page %d" % doc.page)
@@ -2380,6 +2823,322 @@ def export_scada_report(n_clicks, start_date, end_date, sh, sm, eh, em):
     )
     return dcc.send_bytes(buf.getvalue(), filename=filename)
 
+
+# ===========================================================================
+# ── MAINTENANCE REQUESTS CALLBACK ──────────────────────────────────────────
+# ===========================================================================
+
+_STATUS_COLORS = {
+    "queue":       "#F87171",
+    "in_progress": "#FBBF24",
+    "done":        "#34D399",
+    "completed":   "#34D399",
+    "closed":      "#6B7280",
+}
+
+def _maint_status_badge(status: str):
+    color = _STATUS_COLORS.get((status or "").lower().replace(" ", "_"), "#9CA3AF")
+    label = (status or "—").replace("_", " ").title()
+    return html.Span(label, style={
+        "background": color, "color": "#0f1117", "borderRadius": "4px",
+        "padding": "2px 8px", "fontSize": "11px", "fontWeight": "700",
+    })
+
+
+_IMPACT_COLORS = {
+    "no_impact":    "#34D399",   # green  — no production effect
+    "partial_stop": "#FBBF24",   # yellow — partial line reduction
+    "downgraded":   "#F97316",   # orange — line speed downgraded
+    "full_stop":    "#EF4444",   # red    — line fully stopped
+}
+_IMPACT_LABELS = {
+    "no_impact":    "No Impact",
+    "partial_stop": "Partial Stop",
+    "downgraded":   "Downgraded",
+    "full_stop":    "Full Stop",
+}
+
+def _maint_impact_badge(impact: str):
+    key   = (impact or "").lower()
+    color = _IMPACT_COLORS.get(key, "#9CA3AF")
+    label = _IMPACT_LABELS.get(key, (impact or "—").replace("_", " ").title())
+    return html.Span(label, style={
+        "background": "transparent", "border": f"1px solid {color}",
+        "color": color, "borderRadius": "4px",
+        "padding": "2px 7px", "fontSize": "10px", "fontWeight": "600",
+    })
+
+
+# Sync maintenance date pickers from the SCADA shared period picker
+@app.callback(
+    Output("maint-start-date", "value"),
+    Output("maint-end-date",   "value"),
+    Input("shared-start-date", "value"),
+    Input("shared-end-date",   "value"),
+)
+def _sync_maint_dates(start, end):
+    return start, end
+
+
+@app.callback(
+    Output("maint-kpis",              "children"),
+    Output("maint-chart-by-machine",  "figure"),
+    Output("maint-chart-by-status",   "figure"),
+    Output("maint-chart-timeline",    "figure"),
+    Output("maint-table-container",   "children"),
+    Output("maint-status",            "children"),
+    Input("btn-maint-load",           "n_clicks"),
+    Input("maint-start-date",         "value"),   # maintenance tab's own date pickers
+    Input("maint-end-date",           "value"),
+    State("shared-start-hour",        "value"),
+    State("shared-start-min",         "value"),
+    State("shared-end-hour",          "value"),
+    State("shared-end-min",           "value"),
+    prevent_initial_call=True,
+)
+def load_maintenance(n_clicks, start_date_str, end_date_str,
+                     sh, sm, eh, em):
+    empty_fig = go.Figure()
+    empty_fig.update_layout(
+        paper_bgcolor="#181c27", plot_bgcolor="#181c27",
+        font=dict(color="#7b82a0"),
+    )
+
+    try:
+        sh = int(sh) if sh is not None else 0
+        sm = int(sm) if sm is not None else 0
+        eh = int(eh) if eh is not None else 23
+        em = int(em) if em is not None else 59
+        start_dt = datetime.strptime(start_date_str, "%Y-%m-%d").replace(hour=sh, minute=sm) if start_date_str else datetime.now() - timedelta(days=30)
+        end_dt   = datetime.strptime(end_date_str,   "%Y-%m-%d").replace(hour=eh, minute=em, second=59) if end_date_str else datetime.now()
+    except Exception:
+        return [], empty_fig, empty_fig, empty_fig, html.Div("Invalid date range.", style={"color": "#F87171"}), "Invalid dates"
+
+    df, err = fetch_maintenance_requests(start_dt, end_dt)
+
+    if err:
+        msg = html.Span(f"DB error: {err}", style={"color": "#F87171"})
+        return [], empty_fig, empty_fig, empty_fig, html.Div(str(err), style={"color": "#F87171"}), msg
+
+    n = len(df)
+    status_msg = html.Span(
+        f"Loaded {n} IQF request{'s' if n != 1 else ''}  "
+        f"({start_dt.strftime('%d/%m/%Y')} – {end_dt.strftime('%d/%m/%Y')})",
+        style={"color": "#34D399" if n > 0 else "#7b82a0"},
+    )
+
+    if df.empty:
+        no_data = html.Div("No IQF maintenance requests found for the selected period.",
+                           style={"color": "#7b82a0", "fontStyle": "italic", "padding": "20px"})
+        return [], empty_fig, empty_fig, empty_fig, no_data, status_msg
+
+    # ── KPI cards ────────────────────────────────────────────────────────────
+    total       = len(df)
+    open_count  = len(df[~df["status"].str.lower().isin(["done", "completed", "closed"])]) if "status" in df.columns else 0
+    done_count  = len(df[df["status"].str.lower().isin(["done", "completed", "closed"])]) if "status" in df.columns else 0
+    # Avg repair time: prefer repair_time_minutes column; fall back to
+    # duration between machine_receipt_time and production_machine_receipt_time
+    avg_repair = None
+    if "repair_time_minutes" in df.columns:
+        rt = pd.to_numeric(df["repair_time_minutes"], errors="coerce").dropna()
+        avg_repair = round(rt.mean(), 1) if not rt.empty else None
+    if avg_repair is None and {"machine_receipt_time", "production_machine_receipt_time"} <= set(df.columns):
+        t_start = pd.to_datetime(df["machine_receipt_time"], errors="coerce")
+        t_end   = pd.to_datetime(df["production_machine_receipt_time"], errors="coerce")
+        durations = ((t_end - t_start).dt.total_seconds() / 60).dropna()
+        durations = durations[durations > 0]
+        avg_repair = round(durations.mean(), 1) if not durations.empty else None
+
+    kpi_cards = [
+        _kpi_card_dark("Total Requests",  str(total),
+                       f"{start_dt.strftime('%d/%m')} – {end_dt.strftime('%d/%m')}", "primary"),
+        _kpi_card_dark("Open / In-Progress", str(open_count),
+                       "Not yet closed",
+                       "bad" if open_count > 0 else "good"),
+        _kpi_card_dark("Completed", str(done_count),
+                       "Done / Completed / Closed", "good"),
+        _kpi_card_dark("Avg Downtime",
+                       f"{avg_repair} min" if avg_repair is not None else "—",
+                       "Repair start → Machine returned to production",
+                       "bad" if avg_repair and avg_repair > 60 else "warn" if avg_repair else "info"),
+    ]
+
+    # ── Chart — requests per machine ─────────────────────────────────────────
+    if "machine_name" in df.columns:
+        mc = df["machine_name"].value_counts().reset_index()
+        mc.columns = ["machine", "count"]
+        fig_machine = px.bar(
+            mc, x="count", y="machine", orientation="h",
+            color="count", color_continuous_scale=["#818CF8", "#F87171"],
+            labels={"count": "Requests", "machine": ""},
+            title="Requests per Machine",
+        )
+        fig_machine.update_layout(
+            paper_bgcolor="#181c27", plot_bgcolor="#181c27",
+            font=dict(color="#e8eaf0", size=11),
+            title_font=dict(color="#e8eaf0", size=13),
+            coloraxis_showscale=False,
+            margin=dict(t=50, b=30, l=10, r=20),
+            xaxis=dict(gridcolor="rgba(255,255,255,0.06)"),
+            yaxis=dict(gridcolor="rgba(255,255,255,0.06)"),
+        )
+    else:
+        fig_machine = empty_fig
+
+    # ── Chart — by impact (donut) ────────────────────────────────────────────
+    if "impact" in df.columns:
+        ic = df["impact"].fillna("unknown").str.lower().value_counts().reset_index()
+        ic.columns = ["impact", "count"]
+        colors_pie = [_IMPACT_COLORS.get(v, "#9CA3AF") for v in ic["impact"]]
+        pie_labels = [_IMPACT_LABELS.get(v, v.replace("_", " ").title()) for v in ic["impact"]]
+        fig_status = go.Figure(go.Pie(
+            labels=pie_labels, values=ic["count"],
+            customdata=ic["impact"],  # raw value for hover
+            marker_colors=colors_pie,
+            hole=0.55,
+            hovertemplate="<b>%{label}</b><br>%{value} requests (%{percent})<extra></extra>",
+        ))
+        fig_status.update_layout(
+            title=dict(text="By Impact", font=dict(color="#e8eaf0", size=13)),
+            paper_bgcolor="#181c27", font=dict(color="#7b82a0"),
+            legend=dict(font=dict(color="#7b82a0", size=10),
+                        bgcolor="rgba(24,28,39,0.9)",
+                        bordercolor="rgba(255,255,255,0.07)", borderwidth=1),
+            margin=dict(t=50, b=20, l=10, r=10),
+        )
+    else:
+        fig_status = empty_fig
+
+    # ── Chart — timeline (requests per day) ──────────────────────────────────
+    date_col = "failure_start_time" if "failure_start_time" in df.columns else "created_at"
+    if date_col in df.columns:
+        df["_date"] = pd.to_datetime(df[date_col], errors="coerce").dt.date
+        daily = df.groupby("_date").size().reset_index(name="count")
+        fig_timeline = go.Figure(go.Bar(
+            x=daily["_date"], y=daily["count"],
+            marker_color="#818CF8",
+            hovertemplate="<b>%{x}</b><br>%{y} requests<extra></extra>",
+        ))
+        fig_timeline.update_layout(
+            title=dict(text="Per Day", font=dict(color="#e8eaf0", size=13)),
+            paper_bgcolor="#181c27", plot_bgcolor="#181c27",
+            font=dict(color="#7b82a0"),
+            xaxis=dict(gridcolor="rgba(255,255,255,0.06)"),
+            yaxis=dict(gridcolor="rgba(255,255,255,0.06)", title="Requests"),
+            margin=dict(t=50, b=30, l=40, r=10),
+        )
+    else:
+        fig_timeline = empty_fig
+
+    # ── Requests table ────────────────────────────────────────────────────────
+    _TH = {
+        "background": "#1e2333", "color": "#7b82a0", "fontSize": "10px",
+        "padding": "8px 10px", "fontWeight": "600", "textTransform": "uppercase",
+        "letterSpacing": "0.05em", "borderBottom": "1px solid rgba(255,255,255,0.08)",
+        "whiteSpace": "nowrap",
+    }
+    _TD = {
+        "fontSize": "12px", "padding": "8px 10px", "color": "#e8eaf0",
+        "borderBottom": "1px solid rgba(255,255,255,0.04)", "verticalAlign": "top",
+    }
+
+    def _fmt_ts(val):
+        """Format a timestamp value to dd/mm/yyyy HH:MM or '—'."""
+        try:
+            ts = pd.Timestamp(val)
+            return ts.strftime("%d/%m/%Y %H:%M") if pd.notna(ts) else "—"
+        except Exception:
+            return "—"
+
+    header = html.Thead(html.Tr([
+        html.Th("#",                   style=_TH),
+        html.Th("Failure Start",       style=_TH),
+        html.Th("Machine",             style=_TH),
+        html.Th("Title",               style=_TH),
+        html.Th("Description",         style=_TH),
+        html.Th("Status",              style=_TH),
+        html.Th("Impact",              style=_TH),
+        html.Th("Shift",               style=_TH),
+        html.Th("Dept",                style=_TH),
+        html.Th("Technician",          style=_TH),
+        html.Th("Engineer",            style=_TH),
+        html.Th("Repair Start",        style=_TH),  # machine_receipt_time
+        html.Th("Repair End",          style=_TH),  # production_machine_receipt_time
+        html.Th("Repair (min)",        style=_TH),
+        html.Th("Failure Cause",       style=_TH),
+        html.Th("Repair Method",       style=_TH),
+        html.Th("Notes",               style=_TH),
+        html.Th("Spare Parts",         style=_TH),
+    ]))
+
+    rows = []
+    for i, (_, r) in enumerate(df.iterrows(), 1):
+        # Spare parts: stored as jsonb list — render as comma-separated names
+        spare_raw = r.get("spare_parts") or []
+        if isinstance(spare_raw, list):
+            spare_str = ", ".join(
+                str(p.get("name", p) if isinstance(p, dict) else p)
+                for p in spare_raw
+            ) or "—"
+        else:
+            spare_str = str(spare_raw) if spare_raw else "—"
+
+        rows.append(html.Tr([
+            html.Td(str(i),
+                    style={**_TD, "color": "#7b82a0", "textAlign": "center"}),
+            html.Td(_fmt_ts(r.get("failure_start_time")),
+                    style={**_TD, "fontFamily": "monospace", "fontSize": "11px", "whiteSpace": "nowrap"}),
+            html.Td(str(r.get("machine_name") or "—"),
+                    style={**_TD, "color": "#818CF8", "fontWeight": "600"}),
+            html.Td(str(r.get("title") or "—"), style=_TD),
+            html.Td(str(r.get("description") or "—"),
+                    style={**_TD, "fontSize": "11px", "maxWidth": "220px",
+                           "overflow": "hidden", "textOverflow": "ellipsis"}),
+            html.Td(_maint_status_badge(str(r.get("status") or "")), style=_TD),
+            html.Td(_maint_impact_badge(str(r.get("impact") or "")), style=_TD),
+            html.Td(str(r.get("shift") or "—"),
+                    style={**_TD, "textAlign": "center"}),
+            html.Td(str(r.get("depart") or "—"), style=_TD),
+            html.Td(str(r.get("technician_name") or "—"), style=_TD),
+            html.Td(str(r.get("engineer_name") or "—"), style=_TD),
+            html.Td(_fmt_ts(r.get("machine_receipt_time")),
+                    style={**_TD, "fontFamily": "monospace", "fontSize": "11px", "whiteSpace": "nowrap"}),
+            html.Td(_fmt_ts(r.get("production_machine_receipt_time")),
+                    style={**_TD, "fontFamily": "monospace", "fontSize": "11px", "whiteSpace": "nowrap"}),
+            html.Td(str(r.get("repair_time_minutes") or "—"),
+                    style={**_TD, "textAlign": "center"}),
+            html.Td(str(r.get("failure_cause") or "—"),
+                    style={**_TD, "fontSize": "11px"}),
+            html.Td(str(r.get("repair_method") or "—"),
+                    style={**_TD, "fontSize": "11px"}),
+            html.Td(str(r.get("maintenance_notes") or "—"),
+                    style={**_TD, "fontSize": "11px", "maxWidth": "200px",
+                           "overflow": "hidden", "textOverflow": "ellipsis"}),
+            html.Td(spare_str,
+                    style={**_TD, "fontSize": "11px", "maxWidth": "160px",
+                           "overflow": "hidden", "textOverflow": "ellipsis"}),
+        ], style={"background": "rgba(99,102,241,0.03)" if i % 2 == 0 else "transparent"}))
+
+    table = html.Div([
+        html.Div("IQF Maintenance Requests",
+                 style={"color": "#7b82a0", "fontSize": "11px", "fontWeight": "600",
+                        "textTransform": "uppercase", "letterSpacing": "0.08em",
+                        "marginBottom": "8px"}),
+        html.Div(
+            html.Table(
+                [header, html.Tbody(rows)],
+                style={
+                    "width": "100%", "borderCollapse": "collapse",
+                    "background": "#181c27",
+                    "border": "1px solid rgba(255,255,255,0.07)",
+                    "borderRadius": "10px", "overflow": "hidden",
+                },
+            ),
+            style={"overflowX": "auto"},
+        ),
+    ])
+
+    return kpi_cards, fig_machine, fig_status, fig_timeline, table, status_msg
 
 
 # ===========================================================================
