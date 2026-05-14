@@ -441,7 +441,7 @@ body{{background:var(--bg);color:var(--text);font-family:var(--mono);font-size:1
 <!-- ════ TAB 1 — SHIFT ANALYSIS ════ -->
 <div id="tab-shift" class="page-content active">
 
-  <div class="section-label">Daily Counter summary</div>
+  <div class="section-label">Overall summary</div>
   <div class="kpi-grid" id="kpi-top">
     <div class="kpi loading"><div class="kpi-label">Total pieces counted</div><div class="kpi-value" id="k-total-pc">—</div><div class="kpi-sub" id="k-total-pc-sub">—</div></div>
     <div class="kpi loading"><div class="kpi-label">Total weight (g)</div><div class="kpi-value" id="k-total-wt">—</div><div class="kpi-sub">Sum across all tracks</div></div>
@@ -501,7 +501,7 @@ body{{background:var(--bg);color:var(--text);font-family:var(--mono);font-size:1
 <!-- ════ TAB 2 — COUNTER ANALYSIS ════ -->
 <div id="tab-counter" class="page-content">
 
-  <div class="section-label">Total Counter summary</div>
+  <div class="section-label">Counter summary</div>
   <div class="kpi-grid">
     <div class="kpi loading"><div class="kpi-label">Total counter (TC) start</div><div class="kpi-value amber" id="k-tc-start">—</div><div class="kpi-sub">Baseline (shift 0)</div></div>
     <div class="kpi loading"><div class="kpi-label">Total counter (TC) end</div><div class="kpi-value" id="k-tc-end">—</div><div class="kpi-sub" id="k-tc-end-sub">—</div></div>
